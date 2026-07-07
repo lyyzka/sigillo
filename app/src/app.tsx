@@ -18,6 +18,7 @@ import {
   getOrgIdForProject,
   deriveEnvironmentSecretsAndNames,
   decrypt,
+  autoJoinOrgsByDomain,
 } from './db.ts'
 import { apiApp } from './api.ts'
 import { cn } from 'sigillo-app/src/lib/utils'
@@ -85,6 +86,11 @@ export const app = new Spiceflow()
     const projectId = new URLPattern({ pathname: '/dash/projects/:projectId/*' })
       .exec(request.url)?.pathname.groups.projectId ?? null
     const session = await requirePageSession(request)
+    // Auto-join orgs by email domain before querying memberships.
+    // Uses waitUntil so the page doesn't block on the insert if it's slow,
+    // but we await it here because the membership list below needs to include
+    // any newly joined orgs for correct sidebar rendering.
+    await autoJoinOrgsByDomain(session)
     const members = await db.query.orgMember.findMany({
       where: { userId: session.userId },
       with: { org: true },
@@ -518,13 +524,14 @@ export const app = new Spiceflow()
     await requirePageOrgMember(session.userId, orgId)
 
     const [orgRow, projects] = await Promise.all([
-      db.query.org.findFirst({ where: { id: orgId }, columns: { name: true } }),
+      db.query.org.findFirst({ where: { id: orgId }, columns: { name: true, autoJoinDomain: true } }),
       db.query.project.findMany({ where: { orgId }, columns: { name: true }, orderBy: { createdAt: 'asc' } }),
     ])
 
     return {
       orgId,
       orgName: orgRow?.name ?? 'Organization',
+      autoJoinDomain: orgRow?.autoJoinDomain ?? null,
       projectNames: projects.map((p) => p.name),
     }
   })

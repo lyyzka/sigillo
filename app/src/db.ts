@@ -15,6 +15,8 @@ import { genericOAuth, deviceAuthorization, bearer } from 'better-auth/plugins'
 import { drizzleAdapter } from 'better-auth-drizzle-adapter'
 import { redirect } from 'spiceflow'
 import { memoize } from './lib/memoize.ts'
+import { COMMON_EMAIL_DOMAINS, getEmailDomain } from './lib/utils.ts'
+export { COMMON_EMAIL_DOMAINS, getEmailDomain }
 
 // ── Drizzle client via D1 ───────────────────────────────────────────
 export { getDb }
@@ -253,7 +255,7 @@ export function getDataCenter(request: Request & { cf?: { colo?: string } }): st
 
 // ── Session helpers ─────────────────────────────────────────────────
 
-type Session = { userId: string; user: { id: string; name: string; email: string } }
+type Session = { userId: string; user: { id: string; name: string; email: string; emailVerified: boolean } }
 
 // Spiceflow passes the SAME request instance to every matched loader/layout in
 // a single navigation (verified against the framework source). Several loaders
@@ -282,7 +284,7 @@ async function resolveSession(request: Request): Promise<Session | null> {
   const auth = await getAuth(request)
   const session = await auth.api.getSession({ headers: request.headers })
   if (!session) return null
-  return { userId: session.user.id, user: { id: session.user.id, name: session.user.name, email: session.user.email } }
+  return { userId: session.user.id, user: { id: session.user.id, name: session.user.name, email: session.user.email, emailVerified: session.user.emailVerified } }
 }
 
 export async function requireApiSession(request: Request): Promise<Session> {
@@ -295,6 +297,37 @@ export async function requirePageSession(request: Request): Promise<Session> {
   const session = await getSession(request)
   if (!session) throw redirect('/login')
   return session
+}
+
+// ── Domain auto-join ────────────────────────────────────────────────
+// Automatically adds a user as a member to any org whose autoJoinDomain
+// matches the user's verified email domain. Runs on every /dash/* page
+// load. Uses onConflictDoNothing so it's idempotent; no need to pre-check
+// existing memberships (the unique index on org_id+user_id handles it).
+
+export async function autoJoinOrgsByDomain(session: Session): Promise<void> {
+  if (!session.user.emailVerified) return
+  const domain = getEmailDomain(session.user.email)
+  if (!domain || COMMON_EMAIL_DOMAINS.has(domain)) return
+
+  const db = getDb()
+
+  // Find orgs with matching auto-join domain
+  const matchingOrgs = await db.query.org.findMany({
+    where: { autoJoinDomain: domain },
+    columns: { id: true },
+  })
+  if (matchingOrgs.length === 0) return
+
+  // Insert memberships with onConflictDoNothing — the unique index on
+  // (org_id, user_id) prevents duplicates, so we skip already-joined orgs
+  // without needing a separate membership read.
+  const queries = matchingOrgs.map((o) =>
+    db.insert(schema.orgMember)
+      .values({ orgId: o.id, userId: session.userId, role: 'member' })
+      .onConflictDoNothing({ target: [schema.orgMember.orgId, schema.orgMember.userId] }),
+  )
+  await db.batch(queries as [any, ...any[]])
 }
 
 // ── Org authorization ───────────────────────────────────────────────

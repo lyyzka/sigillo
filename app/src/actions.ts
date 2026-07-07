@@ -23,6 +23,8 @@ import {
   encrypt,
   generateApiToken,
   deriveSecrets,
+  getEmailDomain,
+  COMMON_EMAIL_DOMAINS,
 } from './db.ts'
 
 async function requireSession() {
@@ -382,16 +384,51 @@ export async function syncMissingSecretsAction({
   return { count: toSync.length }
 }
 
-export async function createOrgAction({ name }: { name: string }) {
+export async function createOrgAction({ name, enableAutoJoin }: { name: string; enableAutoJoin?: boolean }) {
   if (!name) throw new Error('Name is required')
   const session = await requireSession()
+
+  let autoJoinDomain: string | null = null
+  if (enableAutoJoin) {
+    if (!session.user.emailVerified) throw new Error('Email must be verified to enable auto-join')
+    const domain = getEmailDomain(session.user.email)
+    if (!domain || COMMON_EMAIL_DOMAINS.has(domain)) {
+      throw new Error('Cannot enable auto-join for public email domains')
+    }
+    autoJoinDomain = domain
+  }
+
   const db = getDb()
   const orgId = ulid()
   const [[org]] = await db.batch([
-    db.insert(schema.org).values({ id: orgId, name }).returning({ id: schema.org.id, name: schema.org.name }),
+    db.insert(schema.org).values({ id: orgId, name, autoJoinDomain }).returning({ id: schema.org.id, name: schema.org.name }),
     db.insert(schema.orgMember).values({ orgId, userId: session.userId, role: 'admin' }),
   ] as const)
   throw redirect(router.href('/dash/orgs/:orgId', { orgId: org!.id }))
+}
+
+export async function updateAutoJoinDomainAction({ orgId, enabled }: { orgId: string; enabled: boolean }) {
+  if (!orgId) throw new Error('Org ID is required')
+  const session = await requireSession()
+  await requireAdminRole(session.userId, orgId)
+
+  let autoJoinDomain: string | null = null
+  if (enabled) {
+    if (!session.user.emailVerified) throw new Error('Email must be verified to enable auto-join')
+    const domain = getEmailDomain(session.user.email)
+    if (!domain || COMMON_EMAIL_DOMAINS.has(domain)) {
+      throw new Error('Cannot enable auto-join for public email domains')
+    }
+    autoJoinDomain = domain
+  }
+
+  const db = getDb()
+  await db.update(schema.org)
+    .set({ autoJoinDomain, updatedAt: Date.now() })
+    .where(orm.eq(schema.org.id, orgId))
+    .limit(1)
+
+  return { autoJoinDomain }
 }
 
 export async function deleteOrgAction({ orgId }: { orgId: string }) {

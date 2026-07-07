@@ -1,12 +1,12 @@
 // Settings page for org-level configuration.
-// Currently contains a "Danger Zone" section with org deletion.
+// Contains auto-join domain toggle and "Danger Zone" org deletion.
 // The confirm dialog shows the list of projects that will be deleted
 // so the user knows exactly what they are losing.
 
 'use client'
 
 import { useState, useTransition } from 'react'
-import { AlertTriangleIcon } from 'lucide-react'
+import { AlertTriangleIcon, UsersIcon } from 'lucide-react'
 import { useLoaderData } from 'spiceflow/react'
 import { Button } from 'sigillo-app/src/components/ui/button'
 import {
@@ -18,7 +18,74 @@ import {
   DialogDescription,
   DialogClose,
 } from 'sigillo-app/src/components/ui/dialog'
-import { deleteOrgAction } from '../actions.ts'
+import { deleteOrgAction, updateAutoJoinDomainAction } from '../actions.ts'
+import { COMMON_EMAIL_DOMAINS, getEmailDomain } from '../lib/utils.ts'
+
+function AutoJoinSection() {
+  const { orgId, autoJoinDomain } = useLoaderData('/dash/projects/:projectId/settings')
+  const { user } = useLoaderData('/dash/*')
+  const [isPending, startTransition] = useTransition()
+  const [currentDomain, setCurrentDomain] = useState(autoJoinDomain)
+
+  const userDomain = getEmailDomain(user.email)
+  const isPublicDomain = !userDomain || COMMON_EMAIL_DOMAINS.has(userDomain)
+
+  // Hide the section entirely for users with public email domains
+  // who also don't have auto-join already enabled (legacy data)
+  if (isPublicDomain && !currentDomain) return null
+
+  const isEnabled = !!currentDomain
+
+  function handleToggle() {
+    const newEnabled = !isEnabled
+    startTransition(async () => {
+      const result = await updateAutoJoinDomainAction({ orgId, enabled: newEnabled })
+      setCurrentDomain(result.autoJoinDomain)
+    })
+  }
+
+  return (
+    <div className="rounded-lg border border-border">
+      <div className="p-5">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <UsersIcon className="size-5" />
+          Auto-join by email domain
+        </h2>
+        <p className="text-muted-foreground text-sm mt-2">
+          {isEnabled ? (
+            <>Users with a verified <span className="font-mono text-foreground">@{currentDomain}</span> email are automatically added to this organization.</>
+          ) : (
+            'Automatically add users to this organization based on their email domain.'
+          )}
+        </p>
+      </div>
+      <div className="border-t border-border px-5 py-4 bg-muted/30 rounded-b-lg flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium">
+            {isEnabled ? 'Auto-join is enabled' : 'Auto-join is disabled'}
+          </p>
+          {!isEnabled && userDomain && !isPublicDomain && (
+            <p className="text-xs text-muted-foreground">
+              Will use your email domain: <span className="font-mono">@{userDomain}</span>
+            </p>
+          )}
+          {isPublicDomain && isEnabled && (
+            <p className="text-xs text-muted-foreground">
+              You can disable auto-join but cannot re-enable it with a public email domain.
+            </p>
+          )}
+        </div>
+        <Button
+          variant={isEnabled ? 'outline' : 'default'}
+          onClick={handleToggle}
+          disabled={isPending || (!isEnabled && isPublicDomain)}
+        >
+          {isPending ? 'Saving...' : isEnabled ? 'Disable' : 'Enable'}
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 export function SettingsPage() {
   const { orgId, orgName, projectNames } = useLoaderData('/dash/projects/:projectId/settings')
@@ -39,6 +106,8 @@ export function SettingsPage() {
           Manage your organization settings.
         </p>
       </div>
+
+      <AutoJoinSection />
 
       <div className="rounded-lg border border-destructive/40">
         <div className="p-5">

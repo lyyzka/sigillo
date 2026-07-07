@@ -62,6 +62,25 @@ The value must be valid base64 — `atob()` is used to decode it at runtime. If 
 3. App exchanges code for tokens via PKCE (no client_secret)
 4. CLI/agents use device flow: `POST /api/auth/device/code` → user enters code at `/device` → agent polls for token
 
+## Domain auto-join for organizations
+
+Organizations can enable automatic member join by email domain. When enabled, any user with a **verified** email matching the org's domain (e.g. `@acme.com`) is silently added as a member on their next `/dash/*` page load.
+
+Key files:
+- `db/src/app-schema.ts` — `org.autoJoinDomain` column (nullable text, indexed)
+- `app/src/lib/utils.ts` — `COMMON_EMAIL_DOMAINS` blocklist + `getEmailDomain()` (client-safe, no server imports)
+- `app/src/db.ts` — `autoJoinOrgsByDomain()` runs in the `/dash/*` loader
+- `app/src/actions.ts` — `createOrgAction` accepts `enableAutoJoin`, `updateAutoJoinDomainAction` for settings
+- `app/src/components/create-org-form.tsx` — checkbox (hidden for public email domains like gmail.com)
+- `app/src/components/settings-page.tsx` — enable/disable toggle for admins
+
+Rules:
+- `COMMON_EMAIL_DOMAINS` and `getEmailDomain()` live in `lib/utils.ts`, not `db.ts`. Client components import them directly; `db.ts` re-exports them for server code. Never move them to a server-only module.
+- Auto-join requires `emailVerified: true` on the user **and** on the admin who enables it. Both `createOrgAction` and `updateAutoJoinDomainAction` check this.
+- The auto-join function uses `onConflictDoNothing` on the `(org_id, user_id)` unique index, so it's idempotent and safe to run on every page load.
+- No domain ownership verification (DNS, Admin SDK). First user to claim a domain gets it. This is acceptable for a self-hosted tool.
+- The blocklist is a UX guard, not a security boundary. It hides the checkbox for gmail.com, outlook.com, etc. to prevent accidental misuse.
+
 ## Skills to load
 
 Always load these skills before working on this project:

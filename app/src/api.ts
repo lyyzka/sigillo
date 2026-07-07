@@ -26,6 +26,8 @@ import {
   deriveEnvironmentSecretsAndNames,
   encrypt,
   decrypt,
+  getEmailDomain,
+  COMMON_EMAIL_DOMAINS,
 } from './db.ts'
 
 const userSelectSchema = createSelectSchema(schema.user)
@@ -306,15 +308,32 @@ export const apiApp = new Spiceflow()
     method: 'POST',
     path: '/api/v0/orgs',
     detail: { tags: ['Organizations'], summary: 'Create organization' },
-    request: z.object({ name: z.string().min(1) }),
+    request: z.object({ name: z.string().min(1), enableAutoJoin: z.boolean().optional() }),
     response: orgMutationResponseSchema,
     async handler({ request }) {
       const body = await request.json()
       const session = await requireApiSession(request)
+
+      let autoJoinDomain: string | null = null
+      if (body.enableAutoJoin) {
+        if (!session.user.emailVerified) {
+          return new Response(JSON.stringify({ error: 'Email must be verified to enable auto-join' }), {
+            status: 400, headers: { 'content-type': 'application/json' },
+          })
+        }
+        const domain = getEmailDomain(session.user.email)
+        if (!domain || COMMON_EMAIL_DOMAINS.has(domain)) {
+          return new Response(JSON.stringify({ error: 'Cannot enable auto-join for public email domains' }), {
+            status: 400, headers: { 'content-type': 'application/json' },
+          })
+        }
+        autoJoinDomain = domain
+      }
+
       const db = getDb()
       const orgId = ulid()
       const [[org]] = await db.batch([
-        db.insert(schema.org).values({ id: orgId, name: body.name }).returning({ id: schema.org.id, name: schema.org.name }),
+        db.insert(schema.org).values({ id: orgId, name: body.name, autoJoinDomain }).returning({ id: schema.org.id, name: schema.org.name }),
         db.insert(schema.orgMember).values({ orgId, userId: session.userId, role: 'admin' }),
       ] as const)
       return { ok: true as const, id: org!.id!, name: org!.name! }

@@ -76,9 +76,15 @@ export const verification = sqliteCore.sqliteTable('verification', {
 export const org = sqliteCore.sqliteTable('org', {
   id: sqliteCore.text('id').primaryKey().notNull().$defaultFn(() => ulid()),
   name: sqliteCore.text('name').notNull(),
+  // Email domain for automatic member join (e.g. 'acme.com').
+  // When set, any user with a verified email ending in this domain
+  // is automatically added as a member on their next dashboard visit.
+  autoJoinDomain: sqliteCore.text('auto_join_domain'),
   createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
   updatedAt: epochMs('updated_at').notNull().$defaultFn(() => Date.now()),
-})
+}, (table) => [
+  sqliteCore.index('org_auto_join_domain_idx').on(table.autoJoinDomain),
+])
 
 export const orgMember = sqliteCore.sqliteTable('org_member', {
   id: sqliteCore.text('id').primaryKey().notNull().$defaultFn(() => ulid()),

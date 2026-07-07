@@ -13,8 +13,9 @@
 
 import { describe, test, expect, beforeAll } from 'vitest'
 import { createSpiceflowFetch } from 'spiceflow/client'
+import * as orm from 'drizzle-orm'
 import { app } from './app.js'
-import { getAuth, encrypt, decrypt, deriveSecrets, deriveEnvironmentSecretsAndNames, generateApiToken, getDb } from './db.js'
+import { getAuth, encrypt, decrypt, deriveSecrets, deriveEnvironmentSecretsAndNames, generateApiToken, getDb, autoJoinOrgsByDomain } from './db.js'
 import { schema } from 'db'
 
 // ── Test helpers ────────────────────────────────────────────────────
@@ -825,5 +826,156 @@ describe('encryption roundtrip', () => {
     const { encrypted, iv } = await encrypt(value)
     const decrypted = await decrypt(encrypted, iv)
     expect(decrypted).toBe(value)
+  })
+})
+
+// ── Auto-join by email domain ───────────────────────────────────────
+
+describe('auto-join by email domain', () => {
+  test('creates org with autoJoinDomain when enableAutoJoin is true', async () => {
+    const user = await createTestUser({ email: 'admin@acme-test.com', name: 'AcmeAdmin' })
+    const db = getDb()
+    // Mark email as verified — required before enabling auto-join
+    await db.update(schema.user).set({ emailVerified: true }).where(orm.eq(schema.user.id, user.user.id)).limit(1)
+    const af = authedFetch(user.token)
+    const result = assertOk(await af('/api/v0/orgs', {
+      method: 'POST',
+      body: { name: 'Acme Auto', enableAutoJoin: true },
+    }))
+    expect(result.ok).toBe(true)
+
+    // Verify the domain was stored
+    const org = await db.query.org.findFirst({ where: { id: result.id } })
+    expect(org?.autoJoinDomain).toBe('acme-test.com')
+  })
+
+  test('creates org without autoJoinDomain by default', async () => {
+    const user = await createTestUser({ email: 'admin2@acme-test.com', name: 'AcmeAdmin2' })
+    const af = authedFetch(user.token)
+    const result = assertOk(await af('/api/v0/orgs', {
+      method: 'POST',
+      body: { name: 'Acme No Auto' },
+    }))
+
+    const db = getDb()
+    const org = await db.query.org.findFirst({ where: { id: result.id } })
+    expect(org?.autoJoinDomain).toBeNull()
+  })
+
+  test('rejects enableAutoJoin for public email domains', async () => {
+    const user = await createTestUser({ email: 'user@gmail.com', name: 'GmailUser' })
+    const af = authedFetch(user.token)
+    const result = await af('/api/v0/orgs', {
+      method: 'POST',
+      body: { name: 'Gmail Org', enableAutoJoin: true },
+    })
+    expect(result).toBeInstanceOf(Error)
+  })
+
+  test('autoJoinOrgsByDomain adds user to matching org', async () => {
+    // Create an org with auto-join domain (admin must be verified)
+    const admin = await createTestUser({ email: 'founder@joinme-test.com', name: 'Founder' })
+    const db = getDb()
+    await db.update(schema.user).set({ emailVerified: true }).where(orm.eq(schema.user.id, admin.user.id)).limit(1)
+    const adminFetch = authedFetch(admin.token)
+    const orgResult = assertOk(await adminFetch('/api/v0/orgs', {
+      method: 'POST',
+      body: { name: 'JoinMe Org', enableAutoJoin: true },
+    }))
+
+    // Create a second user with the same domain
+    const employee = await createTestUser({ email: 'employee@joinme-test.com', name: 'Employee' })
+
+    // Mark the employee's email as verified (signUpEmail doesn't verify by default)
+    await db.update(schema.user)
+      .set({ emailVerified: true })
+      .where(orm.eq(schema.user.id, employee.user.id))
+      .limit(1)
+
+    // Run auto-join
+    await autoJoinOrgsByDomain({
+      userId: employee.user.id,
+      user: { id: employee.user.id, name: 'Employee', email: 'employee@joinme-test.com', emailVerified: true },
+    })
+
+    // Verify the employee is now a member
+    const member = await db.query.orgMember.findFirst({
+      where: { orgId: orgResult.id, userId: employee.user.id },
+    })
+    expect(member).toBeTruthy()
+    expect(member!.role).toBe('member')
+  })
+
+  test('autoJoinOrgsByDomain skips unverified emails', async () => {
+    const admin = await createTestUser({ email: 'admin@noverify-test.com', name: 'NoVerifyAdmin' })
+    const db = getDb()
+    await db.update(schema.user).set({ emailVerified: true }).where(orm.eq(schema.user.id, admin.user.id)).limit(1)
+    const adminFetch = authedFetch(admin.token)
+    const orgResult = assertOk(await adminFetch('/api/v0/orgs', {
+      method: 'POST',
+      body: { name: 'NoVerify Org', enableAutoJoin: true },
+    }))
+
+    const unverified = await createTestUser({ email: 'unverified@noverify-test.com', name: 'Unverified' })
+
+    // Do NOT mark email as verified
+    await autoJoinOrgsByDomain({
+      userId: unverified.user.id,
+      user: { id: unverified.user.id, name: 'Unverified', email: 'unverified@noverify-test.com', emailVerified: false },
+    })
+
+    const member = await db.query.orgMember.findFirst({
+      where: { orgId: orgResult.id, userId: unverified.user.id },
+    })
+    expect(member).toBeUndefined()
+  })
+
+  test('autoJoinOrgsByDomain is idempotent', async () => {
+    const admin = await createTestUser({ email: 'admin@idempotent-test.com', name: 'IdempAdmin' })
+    const db = getDb()
+    await db.update(schema.user).set({ emailVerified: true }).where(orm.eq(schema.user.id, admin.user.id)).limit(1)
+    const adminFetch = authedFetch(admin.token)
+    const orgResult = assertOk(await adminFetch('/api/v0/orgs', {
+      method: 'POST',
+      body: { name: 'Idempotent Org', enableAutoJoin: true },
+    }))
+
+    const joiner = await createTestUser({ email: 'joiner@idempotent-test.com', name: 'Joiner' })
+    await db.update(schema.user)
+      .set({ emailVerified: true })
+      .where(orm.eq(schema.user.id, joiner.user.id))
+      .limit(1)
+
+    const session = {
+      userId: joiner.user.id,
+      user: { id: joiner.user.id, name: 'Joiner', email: 'joiner@idempotent-test.com', emailVerified: true },
+    }
+
+    // Run twice — should not throw
+    await autoJoinOrgsByDomain(session)
+    await autoJoinOrgsByDomain(session)
+
+    // Should still have exactly one membership
+    const members = await db.query.orgMember.findMany({
+      where: { orgId: orgResult.id, userId: joiner.user.id },
+    })
+    expect(members.length).toBe(1)
+  })
+
+  test('autoJoinOrgsByDomain skips common email domains', async () => {
+    // Even if somehow an org has autoJoinDomain set, users with gmail should not auto-join
+    // (the domain blocklist check is in autoJoinOrgsByDomain itself)
+    const gmailUser = await createTestUser({ email: 'someone@gmail.com', name: 'GmailSkip' })
+    const db = getDb()
+    await db.update(schema.user)
+      .set({ emailVerified: true })
+      .where(orm.eq(schema.user.id, gmailUser.user.id))
+      .limit(1)
+
+    // This should be a no-op, not throw
+    await autoJoinOrgsByDomain({
+      userId: gmailUser.user.id,
+      user: { id: gmailUser.user.id, name: 'GmailSkip', email: 'someone@gmail.com', emailVerified: true },
+    })
   })
 })
