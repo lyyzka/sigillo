@@ -101,6 +101,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: latest
         version: 6.0.3(vite@8.1.0(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0))
+      blake3-wasm:
+        specifier: 2.1.5
+        version: 2.1.5
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
@@ -118,6 +121,16 @@ importers:
         version: 4.105.0
 
   cli:
+    dependencies:
+      '@clack/prompts':
+        specifier: ^1.7.0
+        version: 1.7.0
+      goke:
+        specifier: ^6.14.1
+        version: 6.14.1
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: ^22.15.3
@@ -154,7 +167,7 @@ importers:
     dependencies:
       '@better-auth/oauth-provider':
         specifier: latest
-        version: 1.6.22(@better-auth/core@1.7.0-beta.4(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.3)(kysely@0.29.2)(nanostores@1.3.0))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-auth@1.7.0-beta.4(drizzle-kit@1.0.0-rc.1)(drizzle-orm@1.0.0-rc.1(@types/mssql@9.1.11)(mssql@11.0.1)(zod@4.4.3))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.8(@types/node@25.9.4)(vite@8.1.0(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0))))(better-call@1.3.7(zod@4.4.3))
+        version: 1.6.23(@better-auth/core@1.7.0-beta.4(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.3)(kysely@0.29.2)(nanostores@1.3.0))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-auth@1.7.0-beta.4(drizzle-kit@1.0.0-rc.1)(drizzle-orm@1.0.0-rc.1(@types/mssql@9.1.11)(mssql@11.0.1)(zod@4.4.3))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.8(@types/node@25.9.4)(vite@8.1.0(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0))))(better-call@1.3.7(zod@4.4.3))
       '@tailwindcss/vite':
         specifier: ^4.2.2
         version: 4.2.4(vite@8.1.0(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0))
@@ -393,13 +406,13 @@ packages:
       mongodb:
         optional: true
 
-  '@better-auth/oauth-provider@1.6.22':
-    resolution: {integrity: sha512-xXFoRqP6pUFbYsgC3eTJ1d+DijcKJVJnq1KAMlaocRM2UNwRlXwrV4zI+GMGCAgBYHrcEhoxxn17IYUGXy6dOw==}
+  '@better-auth/oauth-provider@1.6.23':
+    resolution: {integrity: sha512-1sDN+N4Sztmpk8ziCU3MXicxOTfvYoHvHvhJMQ7PSfr+pLXnYN+dJFI9S3zBRwstmTeJx/OhRIZWrwFJ0TgBnA==}
     peerDependencies:
-      '@better-auth/core': ^1.6.22
+      '@better-auth/core': ^1.6.23
       '@better-auth/utils': 0.4.2
       '@better-fetch/fetch': 1.3.1
-      better-auth: ^1.6.22
+      better-auth: ^1.6.23
       better-call: 1.3.7
 
   '@better-auth/prisma-adapter@1.7.0-beta.4':
@@ -444,8 +457,16 @@ packages:
     resolution: {integrity: sha512-0Ty/1Gfm+Kb07sXcuESjyKfwEhSy4Ns1AgeEisHb/bDY5fWme0tTeTkU14T1Gmcs17YIjB/teiDe4uaCghbYqQ==}
     engines: {node: '>= 20.12.0'}
 
+  '@clack/core@1.4.3':
+    resolution: {integrity: sha512-/kr3UWNtdJfxZtPgDqUOmG2pvwlmcLGheex5yiZKdwbzZJxhV+HMNR9QNmyY5cGwTNV6LrR7Jtp+KjhUAP1qBQ==}
+    engines: {node: '>= 20.12.0'}
+
   '@clack/prompts@1.6.0':
     resolution: {integrity: sha512-EYlRokl8szrP9Z25qT5aepMdBjzBvHF9ZEhzIiUBc9guz/T31EqRgvD0QSgZcpE93xiwrr+OkB4nz0BZyF6fSA==}
+    engines: {node: '>= 20.12.0'}
+
+  '@clack/prompts@1.7.0':
+    resolution: {integrity: sha512-y7/yvZ2TPAnR9+jnc00klvNNLkJiXFFrQA/hlLCcxA9a2A4zQIOimyFQ9XfwYKiGD1fb5GY8vbKIIgO8d5Tb2A==}
     engines: {node: '>= 20.12.0'}
 
   '@cloudflare/kv-asset-handler@0.5.0':
@@ -2956,6 +2977,10 @@ packages:
     resolution: {integrity: sha512-dW9kHHku2sfyMJIH4RuF880zEztbRrka90sYt8WfFKHWK6d57VzxP3+cjFaEwnn+srj+kbGG8rg0ak6Z6fyUJg==}
     engines: {node: '>=18'}
 
+  goke@6.14.1:
+    resolution: {integrity: sha512-ttrqT/tfynw+0AnV7+0GZQomYr2/mlQ+UCmXL2jJEF6GNXSVPXLOvTVnyqTP9xKbW9oTsrLkAXmr42hQEKZ20Q==}
+    engines: {node: '>=18'}
+
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
@@ -4508,7 +4533,7 @@ snapshots:
       '@better-auth/core': 1.7.0-beta.4(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.3)(kysely@0.29.2)(nanostores@1.3.0)
       '@better-auth/utils': 0.4.1
 
-  '@better-auth/oauth-provider@1.6.22(@better-auth/core@1.7.0-beta.4(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.3)(kysely@0.29.2)(nanostores@1.3.0))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-auth@1.7.0-beta.4(drizzle-kit@1.0.0-rc.1)(drizzle-orm@1.0.0-rc.1(@types/mssql@9.1.11)(mssql@11.0.1)(zod@4.4.3))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.8(@types/node@25.9.4)(vite@8.1.0(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0))))(better-call@1.3.7(zod@4.4.3))':
+  '@better-auth/oauth-provider@1.6.23(@better-auth/core@1.7.0-beta.4(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.3)(kysely@0.29.2)(nanostores@1.3.0))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-auth@1.7.0-beta.4(drizzle-kit@1.0.0-rc.1)(drizzle-orm@1.0.0-rc.1(@types/mssql@9.1.11)(mssql@11.0.1)(zod@4.4.3))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.8(@types/node@25.9.4)(vite@8.1.0(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.9.0))))(better-call@1.3.7(zod@4.4.3))':
     dependencies:
       '@better-auth/core': 1.7.0-beta.4(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.3.7(zod@4.4.3))(jose@6.2.3)(kysely@0.29.2)(nanostores@1.3.0)
       '@better-auth/utils': 0.4.2
@@ -4561,9 +4586,21 @@ snapshots:
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
 
+  '@clack/core@1.4.3':
+    dependencies:
+      fast-wrap-ansi: 0.2.2
+      sisteransi: 1.0.5
+
   '@clack/prompts@1.6.0':
     dependencies:
       '@clack/core': 1.4.2
+      fast-string-width: 3.0.2
+      fast-wrap-ansi: 0.2.2
+      sisteransi: 1.0.5
+
+  '@clack/prompts@1.7.0':
+    dependencies:
+      '@clack/core': 1.4.3
       fast-string-width: 3.0.2
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
@@ -6727,6 +6764,8 @@ snapshots:
   github-slugger@2.0.0: {}
 
   goke@6.13.0: {}
+
+  goke@6.14.1: {}
 
   gopd@1.2.0: {}
 

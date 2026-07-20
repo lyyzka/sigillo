@@ -19,6 +19,7 @@
     "db:migrate:preview": "echo \"D1 pre-migration timestamp: $(date +%s)\" && wrangler d1 migrations apply DB --remote --env preview",
     "deployment": "pnpm db:migrate:preview && CLOUDFLARE_ENV=preview pnpm build && wrangler deploy --env preview",
     "deployment:prod": "pnpm db:migrate:prod && pnpm build && wrangler deploy",
+    "bundle:selfhost": "tsx scripts/build-selfhost-bundle.ts",
     "openapi": "tsx scripts/generate-openapi.ts",
     "generate:install": "tsx scripts/generate-install-script.ts",
     "generate:cli-docs": "tsx scripts/generate-cli-docs.ts"
@@ -66,6 +67,7 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vitejs/plugin-react": "latest",
+    "blake3-wasm": "2.1.5",
     "tsx": "^4.21.0",
     "typescript": "latest",
     "vite": "latest",

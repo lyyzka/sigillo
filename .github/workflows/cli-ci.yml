@@ -83,12 +83,19 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm@10.33.4
 
+      # Full workspace install: the publish job also builds the app to produce
+      # the self-host bundle (worker modules + assets + migrations) that
+      # `npx sigillo self-host` deploys to customer Cloudflare accounts.
       - name: Install dependencies
-        run: pnpm install --filter sigillo --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build TypeScript
         working-directory: cli
         run: pnpm build
+
+      - name: Build self-host bundle
+        working-directory: app
+        run: pnpm build && pnpm bundle:selfhost
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -131,8 +138,11 @@ jobs:
           chmod +x dist/linux-x64/sigillo
           dist/linux-x64/sigillo run --command 'NODE_AUTH_TOKEN=$NPM_TOKEN npm publish --access public'
 
+      # Runs on every push (not just fresh publishes) so a failed upload on a
+      # previous run can heal itself: only assets MISSING from the release are
+      # uploaded. Existing assets are never replaced, so later commits with the
+      # same package version can't silently swap binaries out from under npm.
       - name: Upload binaries to GitHub Release
-        if: steps.version-check.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -156,12 +166,23 @@ jobs:
             (cd "cli/dist/${platform}" && zip -r "../../../sigillo-${TAG}-${platform}.zip" .)
           done
 
-          echo "Uploading release assets to ${TAG}..."
-          gh release upload "$TAG" \
-            "sigillo-${TAG}-darwin-arm64.tar.gz" \
-            "sigillo-${TAG}-darwin-x64.tar.gz" \
-            "sigillo-${TAG}-linux-x64.tar.gz" \
-            "sigillo-${TAG}-linux-arm64.tar.gz" \
-            "sigillo-${TAG}-win32-x64.zip" \
-            "sigillo-${TAG}-win32-arm64.zip" \
-            --clobber
+          EXISTING=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          upload_if_missing() {
+            local file="$1"
+            local name
+            name=$(basename "$file")
+            if echo "$EXISTING" | grep -qxF "$name"; then
+              echo "asset $name already on $TAG, skipping"
+            else
+              echo "uploading $name to $TAG"
+              gh release upload "$TAG" "$file"
+            fi
+          }
+
+          upload_if_missing "sigillo-${TAG}-darwin-arm64.tar.gz"
+          upload_if_missing "sigillo-${TAG}-darwin-x64.tar.gz"
+          upload_if_missing "sigillo-${TAG}-linux-x64.tar.gz"
+          upload_if_missing "sigillo-${TAG}-linux-arm64.tar.gz"
+          upload_if_missing "sigillo-${TAG}-win32-x64.zip"
+          upload_if_missing "sigillo-${TAG}-win32-arm64.zip"
+          upload_if_missing "app/dist/sigillo-selfhost-bundle.json.gz"

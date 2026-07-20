@@ -317,6 +317,12 @@ const EnvironmentsRename = zeke.cmd("environments rename <id>", "Rename an env b
 
 const EnvironmentsDelete = zeke.cmd("environments delete <id>", "Delete an env by id or slug");
 
+// The real self-host implementation is TypeScript-only and lives in the npm
+// package (cli/src/selfhost/); bin.ts intercepts `self-host` before exec'ing
+// this binary. This stub exists so standalone-binary installs (curl script,
+// tarballs) still discover the command and get pointed at npx.
+const SelfHost = zeke.cmd("self-host", "Deploy Sigillo to your own Cloudflare account (npm package only)");
+
 fn loginAction(_: Login.Args, opts: Login.Options, global: Global.Options) !void {
     const stderr = getStderr();
     const stdout = getStdout();
@@ -2283,6 +2289,13 @@ fn mergeSecretsIntoEnvMap(env_map: *std.process.EnvMap, secrets: std.json.Object
     }
 }
 
+fn selfHostAction(_: SelfHost.Args, _: SelfHost.Options, _: Global.Options) !void {
+    const stderr = getStderr();
+    try stderr.writeAll("self-host is part of the sigillo npm package (it needs Node.js).\n");
+    try stderr.writeAll("Run it with:\n\n  npx sigillo self-host\n");
+    std.process.exit(1);
+}
+
 fn collectLikelySecretValues(allocator: std.mem.Allocator, secrets: std.json.ObjectMap) ![]const []const u8 {
     var values = std.ArrayListUnmanaged([]const u8).empty;
     errdefer values.deinit(allocator);
@@ -3586,6 +3599,7 @@ pub fn main() !void {
         EnvironmentsGet.bindWith(Global, environmentsGetAction),
         EnvironmentsRename.bindWith(Global, environmentsRenameAction),
         EnvironmentsDelete.bindWith(Global, environmentsDeleteAction),
+        SelfHost.bindWith(Global, selfHostAction),
     }, Global).init(allocator, "sigillo");
 
     const build_options = @import("build_options");

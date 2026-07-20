@@ -8,6 +8,15 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
+// `self-host` is TypeScript-only (goke + clack) and lives exclusively in the
+// npm package — it is not part of the Zig binary. Intercept it before exec'ing
+// the native CLI.
+if (process.argv[2] === 'self-host' || process.argv[2] === 'selfhost') {
+  const { run } = await import('./selfhost/cli.js')
+  await run([process.argv[0]!, process.argv[1]!, ...process.argv.slice(3)])
+  process.exit(0)
+}
+
 // Targets that ship prebuilt binaries (must match scripts/build.ts)
 const supportedTargets = new Set([
   'darwin-arm64', 'darwin-x64',
