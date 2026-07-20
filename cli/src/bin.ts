@@ -13,7 +13,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 // the native CLI.
 if (process.argv[2] === 'self-host' || process.argv[2] === 'selfhost') {
   const { run } = await import('./selfhost/cli.js')
-  await run([process.argv[0]!, process.argv[1]!, ...process.argv.slice(3)])
+  await run()
   process.exit(0)
 }
 

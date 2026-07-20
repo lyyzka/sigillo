@@ -95,13 +95,64 @@ export async function loadBundle(args: { bundlePath?: string; url?: string }): P
   return parseBundle(Buffer.from(await res.arrayBuffer()))
 }
 
+// ── Conflict detection ──────────────────────────────────────────────
+
+/**
+ * Fingerprint an existing worker: every Sigillo deployment has a `DB` D1
+ * binding and a `PROVIDER_URL` plain_text binding. An unrelated worker that
+ * happens to share the name must never be overwritten.
+ */
+export function isSigilloWorker(settings: { bindings?: Array<{ type: string; name: string }> } | null): boolean {
+  const bindings = settings?.bindings ?? []
+  return (
+    bindings.some((b) => b.type === 'd1' && b.name === 'DB') &&
+    bindings.some((b) => b.type === 'plain_text' && b.name === 'PROVIDER_URL')
+  )
+}
+
 // ── D1 ──────────────────────────────────────────────────────────────
 
-export async function ensureDatabase(client: CfClient, accountId: string, name: string): Promise<string> {
+/**
+ * Find-or-create the D1 database. When adopting an existing database by name
+ * (nothing in local state), verify it actually belongs to Sigillo before
+ * applying migrations into it: an empty database is fine, a database whose
+ * `d1_migrations` history starts with our first migration is ours, anything
+ * else is an unrelated database that must not be touched.
+ */
+export async function ensureDatabase({ client, accountId, name, firstMigrationName }: {
+  client: CfClient
+  accountId: string
+  name: string
+  firstMigrationName?: string
+}): Promise<string> {
   const existing = await client.findD1ByName(accountId, name)
-  if (existing) return existing.uuid
-  const created = await client.createD1(accountId, name)
-  return created.uuid
+  if (!existing) {
+    const created = await client.createD1(accountId, name)
+    return created.uuid
+  }
+
+  const [tablesResult] = await client.d1Query({
+    accountId,
+    databaseId: existing.uuid,
+    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%';",
+  })
+  const tables = (tablesResult?.results ?? []).map((row) => String(row.name))
+  if (tables.length === 0) return existing.uuid // empty database — safe to adopt
+
+  if (tables.includes('d1_migrations')) {
+    const [appliedResult] = await client.d1Query({
+      accountId,
+      databaseId: existing.uuid,
+      sql: 'SELECT name FROM d1_migrations ORDER BY id LIMIT 1;',
+    })
+    const first = appliedResult?.results?.[0]?.name
+    if (first === undefined || first === firstMigrationName) return existing.uuid
+  }
+
+  throw new Error(
+    `A D1 database named "${name}" already exists on this account and does not look like a Sigillo database. ` +
+      'Re-run with --name <other-name> to deploy under a different name.',
+  )
 }
 
 /**
@@ -109,18 +160,18 @@ export async function ensureDatabase(client: CfClient, accountId: string, name: 
  * wrangler uses, so `wrangler d1 migrations` stays interoperable.
  * Returns the names of newly applied migrations.
  */
-export async function applyMigrations(
-  client: CfClient,
-  accountId: string,
-  databaseId: string,
-  migrations: Record<string, string>,
-): Promise<string[]> {
-  await client.d1Query(
+export async function applyMigrations({ client, accountId, databaseId, migrations }: {
+  client: CfClient
+  accountId: string
+  databaseId: string
+  migrations: Record<string, string>
+}): Promise<string[]> {
+  await client.d1Query({
     accountId,
     databaseId,
-    'CREATE TABLE IF NOT EXISTS d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);',
-  )
-  const [appliedResult] = await client.d1Query(accountId, databaseId, 'SELECT name FROM d1_migrations;')
+    sql: 'CREATE TABLE IF NOT EXISTS d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);',
+  })
+  const [appliedResult] = await client.d1Query({ accountId, databaseId, sql: 'SELECT name FROM d1_migrations;' })
   const applied = new Set((appliedResult?.results ?? []).map((row) => String(row.name)))
 
   const appliedNow: string[] = []
@@ -130,11 +181,11 @@ export async function applyMigrations(
     // failure can't apply the schema without recording it (which would make
     // every subsequent run fail on duplicate DDL). Same approach as wrangler.
     const escapedName = name.replaceAll("'", "''")
-    await client.d1Query(
+    await client.d1Query({
       accountId,
       databaseId,
-      `${migrations[name]!}\nINSERT INTO d1_migrations (name) VALUES ('${escapedName}');`,
-    )
+      sql: `${migrations[name]!}\nINSERT INTO d1_migrations (name) VALUES ('${escapedName}');`,
+    })
     appliedNow.push(name)
   }
   return appliedNow
@@ -147,18 +198,18 @@ export async function applyMigrations(
  * completion JWT to attach to the worker upload. Unchanged files (matched by
  * hash) are skipped server-side, which is what makes re-runs fast.
  */
-export async function syncAssets(
-  client: CfClient,
-  accountId: string,
-  scriptName: string,
-  bundle: SelfhostBundle,
-  onProgress?: (uploaded: number, total: number) => void,
-): Promise<string> {
+export async function syncAssets({ client, accountId, scriptName, bundle, onProgress }: {
+  client: CfClient
+  accountId: string
+  scriptName: string
+  bundle: SelfhostBundle
+  onProgress?: (uploaded: number, total: number) => void
+}): Promise<string> {
   const manifest: Record<string, { hash: string; size: number }> = {}
   for (const [assetPath, asset] of Object.entries(bundle.assets)) {
     manifest[assetPath] = { hash: asset.hash, size: asset.size }
   }
-  const session = await client.createAssetsUploadSession(accountId, scriptName, manifest)
+  const session = await client.createAssetsUploadSession({ accountId, scriptName, manifest })
   if (!session?.jwt) {
     throw new Error('Cloudflare did not return an assets upload session')
   }
@@ -176,7 +227,7 @@ export async function syncAssets(
       if (!asset) throw new Error(`Upload session requested unknown asset hash ${hash}`)
       formData.append(hash, new File([asset.base64], hash, { type: asset.contentType }), hash)
     }
-    const res = await client.uploadAssetsBucket(accountId, session.jwt, formData)
+    const res = await client.uploadAssetsBucket({ accountId, uploadJwt: session.jwt, formData })
     uploaded += bucket.length
     onProgress?.(uploaded, totalFiles)
     if (res.jwt) completionJwt = res.jwt
@@ -239,7 +290,7 @@ export async function uploadWorker(
       modulePath,
     )
   }
-  await client.putWorker(args.accountId, args.scriptName, formData)
+  await client.putWorker({ accountId: args.accountId, scriptName: args.scriptName, formData })
 }
 
 // ── workers.dev + health ────────────────────────────────────────────

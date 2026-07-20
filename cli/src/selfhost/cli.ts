@@ -20,6 +20,7 @@ import {
   applyMigrations,
   ensureDatabase,
   fetchReleaseInfo,
+  isSigilloWorker,
   generateBetterAuthSecret,
   loadBundle,
   syncAssets,
@@ -101,10 +102,32 @@ async function selfHost(options: SelfHostOptions) {
   }
   const accountName = accounts.find((a) => a.id === accountId)?.name ?? accountId
 
-  // ── Worker name + saved deployment ────────────────────────────────
-  const workerName = options.name ?? savedDeployments.find((d) => d.accountId === accountId)?.workerName ?? 'sigillo'
+  // ── Worker name + saved deployment + conflict detection ──────────
+  // An existing worker is only adopted (updated in place) when it's a known
+  // deployment from local state OR it fingerprints as a Sigillo worker.
+  // An unrelated worker with the same name must never be overwritten.
+  let workerName = options.name ?? savedDeployments.find((d) => d.accountId === accountId)?.workerName ?? 'sigillo'
+  let saved: DeploymentState | undefined
+  let workerExists = false
+  for (;;) {
+    saved = readState().deployments?.[`${accountId}/${workerName}`]
+    const settings = await client.getWorkerSettings(accountId, workerName)
+    workerExists = settings != null
+    if (!workerExists || saved || isSigilloWorker(settings)) break
+
+    const conflict = `A worker named "${workerName}" already exists on this account and does not look like a Sigillo deployment.`
+    if (!interactive() || options.yes) {
+      throw new Error(`${conflict} Re-run with --name <other-name>.`)
+    }
+    clack.log.warn(conflict)
+    const input = await clack.text({ message: 'Pick a different worker name', placeholder: 'sigillo-secrets' })
+    if (clack.isCancel(input) || !String(input).trim()) process.exit(0)
+    workerName = String(input).trim()
+  }
   const stateKey = `${accountId}/${workerName}`
-  const saved: DeploymentState | undefined = state.deployments?.[stateKey]
+  if (workerExists) {
+    clack.log.info(saved ? 'Found existing deployment — updating it' : 'Found an existing Sigillo worker — adopting and updating it')
+  }
   clack.log.info(`Deploying worker ${colors.bold(workerName)} to account ${colors.bold(accountName)}`)
 
   // ── Bundle ────────────────────────────────────────────────────────
@@ -119,8 +142,11 @@ async function selfHost(options: SelfHostOptions) {
 
   // ── D1 + migrations ───────────────────────────────────────────────
   spinner.start('Provisioning D1 database')
-  const databaseId = saved?.databaseId ?? (await ensureDatabase(client, accountId, `${workerName}-db`))
-  const applied = await applyMigrations(client, accountId, databaseId, bundle.migrations)
+  const firstMigrationName = Object.keys(bundle.migrations).sort()[0]
+  const databaseId =
+    saved?.databaseId ??
+    (await ensureDatabase({ client, accountId, name: `${workerName}-db`, firstMigrationName }))
+  const applied = await applyMigrations({ client, accountId, databaseId, migrations: bundle.migrations })
   spinner.stop(
     applied.length > 0
       ? `D1 ready — applied ${applied.length} migration${applied.length > 1 ? 's' : ''}`
@@ -133,15 +159,20 @@ async function selfHost(options: SelfHostOptions) {
   // via keep_bindings (sending would delete user-added secrets like a custom
   // ENCRYPTION_KEY and make stored data unreadable). New worker → reuse the
   // state-saved secret (worker deleted but D1 survived) or generate one.
-  const workerExists = (await client.workerExists(accountId, workerName)) != null
   const betterAuthSecret = workerExists
     ? undefined
     : (saved?.betterAuthSecret ?? generateBetterAuthSecret())
 
   // ── Assets + worker upload ────────────────────────────────────────
   spinner.start('Uploading static assets')
-  const assetsJwt = await syncAssets(client, accountId, workerName, bundle, (uploaded, total) => {
-    spinner.message(`Uploading static assets ${uploaded}/${total}`)
+  const assetsJwt = await syncAssets({
+    client,
+    accountId,
+    scriptName: workerName,
+    bundle,
+    onProgress: (uploaded, total) => {
+      spinner.message(`Uploading static assets ${uploaded}/${total}`)
+    },
   })
   spinner.stop('Static assets synced')
 
@@ -153,16 +184,30 @@ async function selfHost(options: SelfHostOptions) {
   let subdomain = (await client.getAccountSubdomain(accountId))?.subdomain ?? null
   if (!subdomain) {
     let desired = workerName
-    if (interactive() && !options.yes) {
-      const input = await clack.text({
-        message: 'Your account has no workers.dev subdomain yet — pick one',
-        placeholder: desired,
-        defaultValue: desired,
-      })
-      if (clack.isCancel(input)) process.exit(0)
-      desired = String(input).trim() || desired
+    for (;;) {
+      if (interactive() && !options.yes) {
+        const input = await clack.text({
+          message: 'Your account has no workers.dev subdomain yet — pick one',
+          placeholder: desired,
+          defaultValue: desired,
+        })
+        if (clack.isCancel(input)) process.exit(0)
+        desired = String(input).trim() || desired
+      }
+      try {
+        subdomain = (await client.createAccountSubdomain(accountId, desired)).subdomain
+        break
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        // Taken/invalid subdomains: re-prompt interactively, otherwise fail
+        // with a hint since --yes runs can't pick an alternative.
+        if (!interactive() || options.yes) {
+          throw new Error(`Could not register workers.dev subdomain "${desired}": ${message}`)
+        }
+        clack.log.warn(`Subdomain "${desired}" was rejected (likely taken): ${message}`)
+        desired = `${workerName}-${Math.random().toString(36).slice(2, 6)}`
+      }
     }
-    subdomain = (await client.createAccountSubdomain(accountId, desired)).subdomain
   }
   await client.enableWorkersDev(accountId, workerName)
   const workersDevUrl = `https://${workerName}.${subdomain}.workers.dev`
@@ -270,6 +315,7 @@ cli.command('version-info', 'Show the latest available self-host release').actio
 
 cli.help()
 
-export async function run(argv: string[]): Promise<void> {
-  await cli.parse(argv)
+/** Entry from bin.ts: strips the `self-host` argv token and runs the goke CLI. */
+export async function run(): Promise<void> {
+  await cli.parse([process.argv[0]!, process.argv[1]!, ...process.argv.slice(3)])
 }

@@ -145,18 +145,16 @@ export function acquireLock(): () => void {
 export class CloudflareApiError extends Error {
   status: number
   errors: Array<{ code: number; message: string }>
-  constructor(status: number, errors: Array<{ code: number; message: string }>, context: string) {
+  constructor({ status, errors, context }: {
+    status: number
+    errors: Array<{ code: number; message: string }>
+    context: string
+  }) {
     const detail = errors.map((e) => `${e.message} [${e.code}]`).join('; ') || `HTTP ${status}`
     super(`Cloudflare API error (${context}): ${detail}`)
     this.status = status
     this.errors = errors
   }
-}
-
-interface CfEnvelope<T> {
-  success: boolean
-  errors: Array<{ code: number; message: string }>
-  result: T
 }
 
 export class CfClient {
@@ -165,7 +163,7 @@ export class CfClient {
   async fetch<T>(args: {
     method: string
     path: string
-    body?: unknown
+    body?: object
     formData?: FormData
     headers?: Record<string, string>
   }): Promise<T> {
@@ -182,14 +180,18 @@ export class CfClient {
     }
     const res = await fetch(`${CF_API_BASE}${args.path}`, { method: args.method, headers, body })
     const text = await res.text()
-    let envelope: CfEnvelope<T>
+    let envelope: { success: boolean; errors: Array<{ code: number; message: string }>; result: T }
     try {
       envelope = JSON.parse(text)
     } catch {
-      throw new CloudflareApiError(res.status, [{ code: res.status, message: text.slice(0, 300) }], args.path)
+      throw new CloudflareApiError({
+        status: res.status,
+        errors: [{ code: res.status, message: text.slice(0, 300) }],
+        context: args.path,
+      })
     }
     if (!res.ok || !envelope.success) {
-      throw new CloudflareApiError(res.status, envelope.errors ?? [], args.path)
+      throw new CloudflareApiError({ status: res.status, errors: envelope.errors ?? [], context: args.path })
     }
     return envelope.result
   }
@@ -231,7 +233,12 @@ export class CfClient {
     })
   }
 
-  d1Query(accountId: string, databaseId: string, sql: string, params: string[] = []) {
+  d1Query({ accountId, databaseId, sql, params = [] }: {
+    accountId: string
+    databaseId: string
+    sql: string
+    params?: string[]
+  }) {
     return this.fetch<Array<{ results: Array<Record<string, unknown>> }>>({
       method: 'POST',
       path: `/accounts/${accountId}/d1/database/${databaseId}/query`,
@@ -239,11 +246,15 @@ export class CfClient {
     })
   }
 
-  workerExists(accountId: string, scriptName: string) {
-    return this.getOrNull<unknown>(`/accounts/${accountId}/workers/scripts/${scriptName}/settings`)
+  /** Script settings, or null when the worker doesn't exist. Bindings are
+   *  used to fingerprint whether an existing worker is a Sigillo deployment. */
+  getWorkerSettings(accountId: string, scriptName: string) {
+    return this.getOrNull<{ bindings?: Array<{ type: string; name: string }> }>(
+      `/accounts/${accountId}/workers/scripts/${scriptName}/settings`,
+    )
   }
 
-  putWorker(accountId: string, scriptName: string, formData: FormData) {
+  putWorker({ accountId, scriptName, formData }: { accountId: string; scriptName: string; formData: FormData }) {
     return this.fetch<{ id: string }>({
       method: 'PUT',
       path: `/accounts/${accountId}/workers/scripts/${scriptName}`,
@@ -251,11 +262,11 @@ export class CfClient {
     })
   }
 
-  createAssetsUploadSession(
-    accountId: string,
-    scriptName: string,
-    manifest: Record<string, { hash: string; size: number }>,
-  ) {
+  createAssetsUploadSession({ accountId, scriptName, manifest }: {
+    accountId: string
+    scriptName: string
+    manifest: Record<string, { hash: string; size: number }>
+  }) {
     return this.fetch<{ jwt: string; buckets?: string[][] } | null>({
       method: 'POST',
       path: `/accounts/${accountId}/workers/scripts/${scriptName}/assets-upload-session`,
@@ -263,7 +274,11 @@ export class CfClient {
     })
   }
 
-  uploadAssetsBucket(accountId: string, uploadJwt: string, formData: FormData) {
+  uploadAssetsBucket({ accountId, uploadJwt, formData }: {
+    accountId: string
+    uploadJwt: string
+    formData: FormData
+  }) {
     return this.fetch<{ jwt?: string }>({
       method: 'POST',
       path: `/accounts/${accountId}/workers/assets/upload?base64=true`,
