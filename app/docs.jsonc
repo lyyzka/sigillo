@@ -37,7 +37,7 @@
           {
             "group": "Getting Started",
             "icon": "lucide:rocket",
-            "pages": ["index"]
+            "pages": ["index", "docs/self-hosting"]
           }
         ]
       },
@@ -79,6 +79,11 @@
             "group": "Environments",
             "icon": "lucide:layers",
             "pages": ["docs/cli/environments", "docs/cli/environments-create", "docs/cli/environments-get", "docs/cli/environments-rename", "docs/cli/environments-delete"]
+          },
+          {
+            "group": "Self-hosting",
+            "icon": "lucide:server",
+            "pages": ["docs/cli/self-host"]
           }
         ]
       }

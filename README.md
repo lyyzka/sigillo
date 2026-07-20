@@ -533,6 +533,26 @@ Your Cloudflare account              Sigillo Cloud
 
 This means you don't need Google OAuth credentials and the deployment is a single worker.
 
+### One command deploy
+
+The fastest way to self-host — no git clone, no build step:
+
+```bash
+npx sigillo self-host
+```
+
+It logs into Cloudflare (reusing your `wrangler login` when present, or an OAuth browser flow, or a pre-filled API token link that works over SSH), creates the Worker and D1 database, applies migrations, and prints your instance URL. **Re-run the same command anytime to update** — only new migrations are applied and your auth secret is never rotated.
+
+```bash
+# non-interactive (CI/agents)
+CLOUDFLARE_API_TOKEN=xxx npx sigillo self-host --yes
+
+# custom worker name and domain
+npx sigillo self-host --name sigillo --domain secrets.acme.com
+```
+
+### Deploy from source
+
 1. Clone the repo and install dependencies:
 
 ```bash

@@ -127,6 +127,26 @@ sigillo run -c production -- next build # use production
 sigillo secrets get DATABASE_URL -c preview  # override for a single secrets command
 ```
 
+## Self-hosting on Cloudflare
+
+Deploy Sigillo to the user's own Cloudflare account with one command (npm package only, needs Node.js):
+
+```bash
+npx sigillo self-host
+```
+
+It provisions a Worker + D1 database, applies migrations, and prints the instance URL. Cloudflare auth is resolved automatically: `CLOUDFLARE_API_TOKEN` env → existing `wrangler login` → OAuth browser flow → pre-filled API token creation link (works over SSH). Re-running the command is idempotent and deploys the latest release.
+
+```bash
+# non-interactive (agents/CI)
+CLOUDFLARE_API_TOKEN=xxx npx sigillo self-host --yes
+
+# custom worker name and custom domain
+npx sigillo self-host --name sigillo --domain secrets.acme.com
+```
+
+Point the CLI at the deployed instance with `sigillo login --api-url <url>`.
+
 ## Agent rules
 
 ### Never read secret values into context
