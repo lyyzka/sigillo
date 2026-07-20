@@ -473,7 +473,8 @@ export const apiApp = new Spiceflow()
       const session = await requireApiSession(request)
       const orgId = await getOrgIdForProject(params.id)
       if (!orgId) return json({ error: 'not found' }, { status: 404 })
-      await requireApiOrgMember(session.userId, orgId)
+      // getMemberProjectAccess also verifies org membership (single query),
+      // so no separate requireApiOrgMember round-trip is needed.
       if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: params.id })) return json({ error: 'forbidden' }, { status: 403 })
       const db = getDb()
       const project = await db.query.project.findFirst({
@@ -511,7 +512,8 @@ export const apiApp = new Spiceflow()
       const session = await requireApiSession(request)
       const orgId = await getOrgIdForProject(params.id)
       if (!orgId) return json({ error: 'not found' }, { status: 404 })
-      await requireApiOrgMember(session.userId, orgId)
+      // getMemberProjectAccess also verifies org membership (single query),
+      // so no separate requireApiOrgMember round-trip is needed.
       if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: params.id })) return json({ error: 'forbidden' }, { status: 403 })
       const db = getDb()
       const [updated] = await db.update(schema.project)
@@ -532,7 +534,8 @@ export const apiApp = new Spiceflow()
       const session = await requireApiSession(request)
       const orgId = await getOrgIdForProject(params.id)
       if (!orgId) return json({ error: 'not found' }, { status: 404 })
-      await requireApiOrgMember(session.userId, orgId)
+      // getMemberProjectAccess also verifies org membership (single query),
+      // so no separate requireApiOrgMember round-trip is needed.
       if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: params.id })) return json({ error: 'forbidden' }, { status: 403 })
       const db = getDb()
       const [deleted] = await db.delete(schema.project).where(orm.eq(schema.project.id, params.id)).returning({ id: schema.project.id })

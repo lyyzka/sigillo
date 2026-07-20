@@ -335,63 +335,55 @@ export async function autoJoinOrgsByDomain(session: Session): Promise<void> {
 // If a member has ANY memberAccess rows → only listed projects.
 // Admins always bypass all restrictions.
 
+// Membership + granular access in ONE round-trip. db.query with `with` emits
+// a single SQL statement (accessRules joined via the orgMember relation), so
+// this replaces the previous two sequential queries. Because it looks up the
+// orgMember row, it doubles as the org-membership check: callers that are
+// happy with a plain forbidden outcome for non-members can skip a separate
+// requireOrgMember round-trip entirely.
+export async function getMemberAccess({ userId, orgId }: {
+  userId: string
+  orgId: string
+}): Promise<{
+  role: (typeof schema.orgMember.$inferSelect)['role']
+  /** null = unrestricted (admin, or no memberAccess rows); string[] = only these projects */
+  accessibleProjectIds: string[] | null
+} | null> {
+  const db = getDb()
+  const member = await db.query.orgMember.findFirst({
+    where: { userId, orgId },
+    with: { accessRules: true },
+  })
+  if (!member) return null
+  if (member.role === 'admin' || member.accessRules.length === 0) {
+    return { role: member.role, accessibleProjectIds: null }
+  }
+  return { role: member.role, accessibleProjectIds: member.accessRules.map((r) => r.projectId) }
+}
+
 // Check if a specific member has access to a specific project.
+// Also verifies org membership (false for non-members) — no separate
+// requireOrgMember call needed when a 403 is the desired failure mode.
 export async function getMemberProjectAccess({ userId, orgId, projectId }: {
   userId: string
   orgId: string
   projectId: string
 }): Promise<boolean> {
-  const db = getDb()
-
-  const member = await db.query.orgMember.findFirst({
-    where: { userId, orgId },
-    columns: { id: true, role: true },
-  })
-  if (!member) return false
-
-  // Admins always have full access
-  if (member.role === 'admin') return true
-
-  // Check if any memberAccess rows exist for this member
-  const accessRules = await db.query.memberAccess.findMany({
-    where: { orgMemberId: member.id },
-    columns: { projectId: true },
-  })
-
-  // No access rules → full access to everything (backwards compatible)
-  if (accessRules.length === 0) return true
-
-  // Check if the specific project is in the list
-  return accessRules.some((r) => r.projectId === projectId)
+  const access = await getMemberAccess({ userId, orgId })
+  if (!access) return false
+  return access.accessibleProjectIds === null || access.accessibleProjectIds.includes(projectId)
 }
 
 // Get list of project IDs a member can access, or null if unrestricted.
-// null = all projects (no memberAccess rows, or admin).
-// string[] = only these project IDs.
+// null = all projects (admin, or no memberAccess rows).
+// string[] = only these project IDs ([] for non-members).
 export async function getAccessibleProjectIds(
   userId: string,
   orgId: string,
 ): Promise<string[] | null> {
-  const db = getDb()
-
-  const member = await db.query.orgMember.findFirst({
-    where: { userId, orgId },
-    columns: { id: true, role: true },
-  })
-  if (!member) return []
-
-  // Admins always see everything
-  if (member.role === 'admin') return null
-
-  const accessRules = await db.query.memberAccess.findMany({
-    where: { orgMemberId: member.id },
-    columns: { projectId: true },
-  })
-
-  // No access rules → unrestricted
-  if (accessRules.length === 0) return null
-
-  return accessRules.map((r) => r.projectId)
+  const access = await getMemberAccess({ userId, orgId })
+  if (!access) return []
+  return access.accessibleProjectIds
 }
 
 // ── Org authorization ───────────────────────────────────────────────
@@ -677,22 +669,15 @@ export async function requireSecretsApiAuth(
   const env = await resolveEnvironment(environmentRef, projectId)
   if (!env?.orgId) throw new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } })
 
-  try {
-    await requireOrgMember(session.userId, env.orgId)
-  } catch {
-    throw forbiddenResponse()
+  // One query answers membership, granular project access, AND the role
+  // needed for admin-only environments (previously 3 sequential round-trips).
+  const access = await getMemberAccess({ userId: session.userId, orgId: env.orgId })
+  if (!access) throw forbiddenResponse()
+  if (access.accessibleProjectIds !== null && !access.accessibleProjectIds.includes(env.projectId)) {
+    throw forbiddenResponse('you do not have access to this project')
   }
-
-  // Check granular project access
-  const hasProjectAccess = await getMemberProjectAccess({ userId: session.userId, orgId: env.orgId, projectId: env.projectId })
-  if (!hasProjectAccess) throw forbiddenResponse('you do not have access to this project')
-
-  // Check environment-level access role
-  if (env.accessRole === 'admin') {
-    const memberInfo = await lookupOrgMember(session.userId, env.orgId)
-    if (memberInfo?.role !== 'admin') {
-      throw forbiddenResponse('admin access required for this environment')
-    }
+  if (env.accessRole === 'admin' && access.role !== 'admin') {
+    throw forbiddenResponse('admin access required for this environment')
   }
 
   return { userId: session.userId, apiTokenId: null, environmentId: env.id }

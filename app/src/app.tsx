@@ -20,7 +20,6 @@ import {
   decrypt,
   autoJoinOrgsByDomain,
   getAccessibleProjectIds,
-  getMemberProjectAccess,
 } from './db.ts'
 import { apiApp } from './api.ts'
 import { cn } from 'sigillo-app/src/lib/utils'
@@ -147,19 +146,21 @@ export const app = new Spiceflow()
     const session = await requirePageSession(request)
     const orgId = await getOrgIdForProject(projectId)
     if (!orgId) throw Response.redirect(new URL('/', request.url).toString(), 302)
-    await requirePageOrgMember(session.userId, orgId)
 
-    // Check the current user has access to this project
-    if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId })) {
+    // One access lookup covers org membership ([] for non-members), the
+    // current-project check, AND the sidebar project filter — previously
+    // three sequential round-trips. Run it in parallel with the project list.
+    const [accessibleIds, allProjects] = await Promise.all([
+      getAccessibleProjectIds(session.userId, orgId),
+      db.query.project.findMany({
+        where: { orgId },
+        with: { environments: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ])
+    if (accessibleIds !== null && !accessibleIds.includes(projectId)) {
       throw Response.redirect(new URL('/', request.url).toString(), 302)
     }
-
-    const accessibleIds = await getAccessibleProjectIds(session.userId, orgId)
-    const allProjects = await db.query.project.findMany({
-      where: { orgId },
-      with: { environments: true },
-      orderBy: { createdAt: 'desc' },
-    })
 
     const projects = allProjects
       .filter((p) => accessibleIds === null || accessibleIds.includes(p.id))

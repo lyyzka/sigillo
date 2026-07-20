@@ -81,14 +81,13 @@ export async function deleteSecretAction({ name, environmentIds }: {
   const orgId = orgIds[0]
   if (!orgId || orgIds.some((id) => !id)) throw new Error('Environment not found')
   if (orgIds.some((id) => id !== orgId)) throw new Error('All environments must belong to the same organization')
-  await requireOrgMember(session.userId, orgId)
-  // Check project access
+  // getMemberProjectAccess also verifies org membership in a single query,
+  // so no separate requireOrgMember round-trip is needed.
   const db0 = getDb()
   const env0 = await db0.query.environment.findFirst({ where: { id: unique[0]! }, columns: { projectId: true } })
-  if (env0) {
-    if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: env0.projectId })) {
-      throw new Error('You do not have access to this project')
-    }
+  if (!env0) throw new Error('Environment not found')
+  if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: env0.projectId })) {
+    throw new Error('You do not have access to this project')
   }
   const db = getDb()
   const queries: BatchItem<'sqlite'>[] = unique.map((envId) =>
@@ -112,14 +111,13 @@ export async function saveSecretsAction({ edits, environmentIds }: {
   const currentEnvId = environmentIds[0]!
   const orgId = await getOrgIdForEnvironment(currentEnvId)
   if (!orgId) throw new Error('Environment not found')
-  await requireOrgMember(session.userId, orgId)
-  // Check project-level access
+  // getMemberProjectAccess also verifies org membership in a single query,
+  // so no separate requireOrgMember round-trip is needed.
   const db0 = getDb()
   const env0 = await db0.query.environment.findFirst({ where: { id: currentEnvId }, columns: { projectId: true } })
-  if (env0) {
-    if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: env0.projectId })) {
-      throw new Error('You do not have access to this project')
-    }
+  if (!env0) throw new Error('Environment not found')
+  if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: env0.projectId })) {
+    throw new Error('You do not have access to this project')
   }
 
   const db = getDb()
