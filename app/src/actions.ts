@@ -25,6 +25,7 @@ import {
   deriveSecrets,
   getEmailDomain,
   COMMON_EMAIL_DOMAINS,
+  getMemberProjectAccess,
 } from './db.ts'
 
 async function requireSession() {
@@ -81,6 +82,14 @@ export async function deleteSecretAction({ name, environmentIds }: {
   if (!orgId || orgIds.some((id) => !id)) throw new Error('Environment not found')
   if (orgIds.some((id) => id !== orgId)) throw new Error('All environments must belong to the same organization')
   await requireOrgMember(session.userId, orgId)
+  // Check project access
+  const db0 = getDb()
+  const env0 = await db0.query.environment.findFirst({ where: { id: unique[0]! }, columns: { projectId: true } })
+  if (env0) {
+    if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: env0.projectId })) {
+      throw new Error('You do not have access to this project')
+    }
+  }
   const db = getDb()
   const queries: BatchItem<'sqlite'>[] = unique.map((envId) =>
     db.insert(schema.secretEvent).values({
@@ -104,6 +113,14 @@ export async function saveSecretsAction({ edits, environmentIds }: {
   const orgId = await getOrgIdForEnvironment(currentEnvId)
   if (!orgId) throw new Error('Environment not found')
   await requireOrgMember(session.userId, orgId)
+  // Check project-level access
+  const db0 = getDb()
+  const env0 = await db0.query.environment.findFirst({ where: { id: currentEnvId }, columns: { projectId: true } })
+  if (env0) {
+    if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: env0.projectId })) {
+      throw new Error('You do not have access to this project')
+    }
+  }
 
   const db = getDb()
 
@@ -198,15 +215,30 @@ export async function renameEnvAction({ id, name, slug }: {
 
 const INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 
-export async function createInviteAction({ orgId }: { orgId: string }) {
+export async function createInviteAction({ orgId, projectIds }: { orgId: string; projectIds?: string[] }) {
   if (!orgId) throw new Error('No org selected')
   const session = await requireSession()
   const { role } = await requireOrgMember(session.userId, orgId)
   if (role !== 'admin') throw new Error('Only admins can create invites')
+
+  // Validate project IDs belong to this org if provided
+  if (projectIds && projectIds.length > 0) {
+    const db = getDb()
+    const orgProjects = await db.query.project.findMany({
+      where: { orgId },
+      columns: { id: true },
+    })
+    const validIds = new Set(orgProjects.map((p) => p.id))
+    for (const pid of projectIds) {
+      if (!validIds.has(pid)) throw new Error(`Project ${pid} does not belong to this organization`)
+    }
+  }
+
   const db = getDb()
   const [invite] = await db.insert(schema.orgInvitation).values({
     orgId,
     createdBy: session.userId,
+    projectIds: projectIds && projectIds.length > 0 ? JSON.stringify(projectIds) : null,
     expiresAt: Date.now() + INVITE_EXPIRY_MS,
   }).returning({ id: schema.orgInvitation.id })
   return { id: invite!.id }
@@ -229,6 +261,24 @@ export async function acceptInviteAction({ invitationId }: { invitationId: strin
     .values({ orgId: invite.orgId, userId: session.userId, role: invite.role })
     .onConflictDoNothing({ target: [schema.orgMember.orgId, schema.orgMember.userId] })
     .returning({ id: schema.orgMember.id })
+
+  // If the invite has project scoping, create memberAccess rows
+  if (inserted.length > 0 && invite.projectIds) {
+    try {
+      const projectIds = JSON.parse(invite.projectIds) as string[]
+      if (Array.isArray(projectIds) && projectIds.length > 0) {
+        const memberId = inserted[0]!.id
+        const queries = projectIds.map((projectId) =>
+          db.insert(schema.memberAccess)
+            .values({ orgMemberId: memberId, projectId })
+            .onConflictDoNothing(),
+        )
+        const [first, ...rest] = queries
+        if (first) await db.batch([first, ...rest])
+      }
+    } catch {}
+  }
+
   throw redirect(router.href('/dash/orgs/:orgId', { orgId: invite.orgId }))
 }
 
@@ -431,6 +481,75 @@ export async function updateAutoJoinDomainAction({ orgId, enabled }: { orgId: st
   return { autoJoinDomain }
 }
 
+// ── Member access (granular project permissions) ────────────────────
+// Admin-only. Sets which projects a member can access and which secrets
+// are restricted. Passing an empty projects array reverts to "all access".
+
+export async function updateMemberAccessAction({ memberId, projectIds }: {
+  memberId: string
+  projectIds: string[]
+}) {
+  const session = await requireSession()
+  const db = getDb()
+  const member = await db.query.orgMember.findFirst({
+    where: { id: memberId },
+    columns: { id: true, orgId: true, role: true },
+  })
+  if (!member) throw new Error('Member not found')
+  await requireAdminRole(session.userId, member.orgId)
+
+  // Cannot restrict admins
+  if (member.role === 'admin') throw new Error('Admins always have full access')
+
+  // Delete all existing access rules for this member
+  await db.delete(schema.memberAccess)
+    .where(orm.eq(schema.memberAccess.orgMemberId, member.id))
+
+  // If no projects specified, member reverts to "all access" (no rows)
+  if (projectIds.length === 0) return { ok: true }
+
+  // Verify all projects belong to this org
+  const orgProjects = await db.query.project.findMany({
+    where: { orgId: member.orgId },
+    columns: { id: true },
+  })
+  const orgProjectIdsSet = new Set(orgProjects.map((p) => p.id))
+  for (const pid of projectIds) {
+    if (!orgProjectIdsSet.has(pid)) {
+      throw new Error(`Project ${pid} does not belong to this organization`)
+    }
+  }
+
+  // Insert new access rules
+  const queries = projectIds.map((projectId) =>
+    db.insert(schema.memberAccess).values({ orgMemberId: member.id, projectId }),
+  )
+  const [first, ...rest] = queries
+  if (first) await db.batch([first, ...rest])
+
+  return { ok: true }
+}
+
+// ── Environment access role ─────────────────────────────────────────
+// Admins can restrict an environment (e.g. production) so only admins
+// can read/write secrets in it. Members get 403 on all secret operations.
+
+export async function updateEnvironmentAccessRoleAction({ environmentId, accessRole }: {
+  environmentId: string
+  accessRole: 'admin' | 'member'
+}) {
+  const session = await requireSession()
+  const orgId = await getOrgIdForEnvironment(environmentId)
+  if (!orgId) throw new Error('Environment not found')
+  await requireAdminRole(session.userId, orgId)
+  const db = getDb()
+  await db.update(schema.environment)
+    .set({ accessRole, updatedAt: Date.now() })
+    .where(orm.eq(schema.environment.id, environmentId))
+    .limit(1)
+  return { ok: true, environmentId, accessRole }
+}
+
 export async function deleteOrgAction({ orgId }: { orgId: string }) {
   if (!orgId) throw new Error('Org ID is required')
   const session = await requireSession()
@@ -439,5 +558,6 @@ export async function deleteOrgAction({ orgId }: { orgId: string }) {
   // Cascade deletes handle orgMembers, invitations, projects, environments,
   // secretEvents, and apiTokens automatically via foreign key constraints.
   await db.delete(schema.org).where(orm.eq(schema.org.id, orgId))
-  throw redirect(router.href('/'))
+  // /dash re-resolves the user's remaining orgs (or shows the create-org flow)
+  throw redirect(router.href('/dash'))
 }

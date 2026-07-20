@@ -15,7 +15,7 @@ import { describe, test, expect, beforeAll } from 'vitest'
 import { createSpiceflowFetch } from 'spiceflow/client'
 import * as orm from 'drizzle-orm'
 import { app } from './app.js'
-import { getAuth, encrypt, decrypt, deriveSecrets, deriveEnvironmentSecretsAndNames, generateApiToken, getDb, autoJoinOrgsByDomain } from './db.js'
+import { getAuth, encrypt, decrypt, deriveSecrets, deriveEnvironmentSecretsAndNames, generateApiToken, getDb, autoJoinOrgsByDomain, getMemberProjectAccess, getAccessibleProjectIds } from './db.js'
 import { schema } from 'db'
 
 // ── Test helpers ────────────────────────────────────────────────────
@@ -40,16 +40,19 @@ async function createTestUser(overrides?: { email?: string; name?: string }) {
 }
 
 /** Throw if Error, return the success result */
+// TS cannot narrow `T | Error` to `Exclude<T, Error>` on a type parameter,
+// so the cast is unavoidable here (canonical errore-style helper).
 function assertOk<T>(result: T | Error): Exclude<T, Error> {
   if (result instanceof Error) throw result
   return result as Exclude<T, Error>
 }
 
 /** Assert result is an Error with a specific HTTP status code */
-function assertErrorStatus(result: unknown, status: number) {
+function assertErrorStatus<T>(result: T | Error, status: number) {
   expect(result).toBeInstanceOf(Error)
+  if (!(result instanceof Error)) throw new Error('unreachable')
   // spiceflow wraps non-2xx responses as Error with a status property
-  expect((result as Error & { status?: number }).status).toBe(status)
+  expect(Reflect.get(result, 'status')).toBe(status)
 }
 
 /** Create a typed fetch client with Bearer auth for a given token */
@@ -302,15 +305,15 @@ describe('secrets — core flow', () => {
     expect(dbSecret).toBeTruthy()
     expect(dbSecret!.name).toBe('DATABASE_URL')
     // list endpoint correctly does NOT return the value field
-    expect('value' in dbSecret!).toBe(false)
+    expect(dbSecret).not.toHaveProperty('value')
   })
 
   test('delete secret makes it gone', async () => {
-    await af('/api/v0/projects/:pid/environments/:eid/secrets', {
+    assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', {
       method: 'POST',
       params: { pid: projectId, eid: envId },
       body: { name: 'TO_DELETE', value: 'gone' },
-    })
+    }))
 
     assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets/:name', {
       method: 'DELETE',
@@ -325,10 +328,10 @@ describe('secrets — core flow', () => {
 
   test('event sourcing: set → update → delete → set yields final value', async () => {
     const p = { pid: projectId, eid: envId }
-    const post = (name: string, value: string) =>
-      af('/api/v0/projects/:pid/environments/:eid/secrets', { method: 'POST', params: p, body: { name, value } })
-    const del = (name: string) =>
-      af('/api/v0/projects/:pid/environments/:eid/secrets/:name', { method: 'DELETE', params: { ...p, name } })
+    const post = async (name: string, value: string) =>
+      assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', { method: 'POST', params: p, body: { name, value } }))
+    const del = async (name: string) =>
+      assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets/:name', { method: 'DELETE', params: { ...p, name } }))
     const get = (name: string) =>
       af('/api/v0/projects/:pid/environments/:eid/secrets/:name', { params: { ...p, name } })
 
@@ -382,11 +385,11 @@ describe('secrets — download formats', () => {
     const env = assertOk(await af('/api/v0/projects/:pid/environments/:id', { params: { pid: projectId, id: 'dev' } }))
     envId = env.id
 
-    await af('/api/v0/projects/:pid/environments/:eid/secrets', {
+    assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', {
       method: 'PUT',
       params: { pid: projectId, eid: envId },
       body: { secrets: { DB_HOST: 'localhost', DB_PORT: '5432' } },
-    })
+    }))
   })
 
   // Download routes return raw text/json, so use app.handle() for these
@@ -434,13 +437,13 @@ describe('secrets — download formats', () => {
 
   test('dotnet-json format nests keys with __', async () => {
     const af = authedFetch(token)
-    await af('/api/v0/projects/:pid/environments/:eid/secrets', {
+    assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', {
       method: 'POST',
       params: { pid: projectId, eid: envId },
       body: { name: 'CONNECTION__HOST', value: 'Server=localhost' },
-    })
+    }))
     const res = await downloadReq('dotnet-json')
-    const body = await res.json() as Record<string, Record<string, string>>
+    const body: Record<string, Record<string, string>> = await res.json()
     // toDotnetJsonKey lowercases then PascalCases each segment
     expect(body.Connection).toBeTruthy()
     expect(body.Connection!.Host).toBe('Server=localhost')
@@ -467,11 +470,11 @@ describe('api tokens', () => {
     prodEnvId = envs.environments.find((e) => e.slug === 'prod')!.id
 
     // Seed a secret in dev
-    await af('/api/v0/projects/:pid/environments/:eid/secrets', {
+    assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', {
       method: 'POST',
       params: { pid: projectId, eid: devEnvId },
       body: { name: 'TOKEN_TEST', value: 'secret-value' },
-    })
+    }))
   })
 
   test('project-scoped token can access secrets', async () => {
@@ -557,14 +560,14 @@ describe('security — cross-user isolation', () => {
     const env = assertOk(await af('/api/v0/projects/:pid/environments/:id', { params: { pid: userAProjectId, id: 'dev' } }))
     userAEnvId = env.id
 
-    await af('/api/v0/projects/:pid/environments/:eid/secrets', {
+    assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', {
       method: 'POST',
       params: { pid: userAProjectId, eid: userAEnvId },
       body: { name: 'ALICE_SECRET', value: 'only-for-alice' },
-    })
+    }))
   })
 
-  function req(path: string, token: string, method = 'GET', body?: Record<string, unknown>) {
+  function req({ path, token, method = 'GET', body }: { path: string; token: string; method?: string; body?: object }) {
     const headers: Record<string, string> = { authorization: `Bearer ${token}` }
     if (body) headers['content-type'] = 'application/json'
     return app.handle(new Request(`http://e.ly${path}`, {
@@ -575,59 +578,59 @@ describe('security — cross-user isolation', () => {
   }
 
   test('user B cannot access user A project (403)', async () => {
-    const res = await req(`/api/v0/projects/${userAProjectId}`, userBToken)
+    const res = await req({ path: `/api/v0/projects/${userAProjectId}`, token: userBToken })
     expect(res.status).toBe(403)
   })
 
   test('user B cannot list user A secrets (403)', async () => {
-    const res = await req(`/api/v0/projects/${userAProjectId}/environments/${userAEnvId}/secrets`, userBToken)
+    const res = await req({ path: `/api/v0/projects/${userAProjectId}/environments/${userAEnvId}/secrets`, token: userBToken })
     expect(res.status).toBe(403)
   })
 
   test('user B cannot create project in user A org (403)', async () => {
-    const res = await req('/api/v0/projects', userBToken, 'POST', { name: 'Sneaky', orgId: userAOrgId })
+    const res = await req({ path: '/api/v0/projects', token: userBToken, method: 'POST', body: { name: 'Sneaky', orgId: userAOrgId } })
     expect(res.status).toBe(403)
   })
 
   test('user B cannot delete user A project (403)', async () => {
-    const res = await req(`/api/v0/projects/${userAProjectId}`, userBToken, 'DELETE')
+    const res = await req({ path: `/api/v0/projects/${userAProjectId}`, token: userBToken, method: 'DELETE' })
     expect(res.status).toBe(403)
   })
 
   test('user B cannot get user A secret value (403)', async () => {
-    const res = await req(`/api/v0/projects/${userAProjectId}/environments/${userAEnvId}/secrets/ALICE_SECRET`, userBToken)
+    const res = await req({ path: `/api/v0/projects/${userAProjectId}/environments/${userAEnvId}/secrets/ALICE_SECRET`, token: userBToken })
     expect(res.status).toBe(403)
   })
 
   // Write-path isolation — these are the scary paths
   test('user B cannot set secrets in user A env (403)', async () => {
-    const res = await req(`/api/v0/projects/${userAProjectId}/environments/${userAEnvId}/secrets`, userBToken, 'POST', {
+    const res = await req({ path: `/api/v0/projects/${userAProjectId}/environments/${userAEnvId}/secrets`, token: userBToken, method: 'POST', body: {
       name: 'INJECTED', value: 'evil',
-    })
+    } })
     expect(res.status).toBe(403)
   })
 
   test('user B cannot bulk-set secrets in user A env (403)', async () => {
-    const res = await req(`/api/v0/projects/${userAProjectId}/environments/${userAEnvId}/secrets`, userBToken, 'PUT', {
+    const res = await req({ path: `/api/v0/projects/${userAProjectId}/environments/${userAEnvId}/secrets`, token: userBToken, method: 'PUT', body: {
       secrets: { INJECTED: 'evil' },
-    })
+    } })
     expect(res.status).toBe(403)
   })
 
   test('user B cannot delete user A secret (403)', async () => {
-    const res = await req(`/api/v0/projects/${userAProjectId}/environments/${userAEnvId}/secrets/ALICE_SECRET`, userBToken, 'DELETE')
+    const res = await req({ path: `/api/v0/projects/${userAProjectId}/environments/${userAEnvId}/secrets/ALICE_SECRET`, token: userBToken, method: 'DELETE' })
     expect(res.status).toBe(403)
   })
 
   test('user B cannot create environment in user A project (403)', async () => {
-    const res = await req(`/api/v0/projects/${userAProjectId}/environments`, userBToken, 'POST', {
+    const res = await req({ path: `/api/v0/projects/${userAProjectId}/environments`, token: userBToken, method: 'POST', body: {
       name: 'Injected', slug: 'injected',
-    })
+    } })
     expect(res.status).toBe(403)
   })
 
   test('user B cannot delete user A environment (403)', async () => {
-    const res = await req(`/api/v0/projects/${userAProjectId}/environments/${userAEnvId}`, userBToken, 'DELETE')
+    const res = await req({ path: `/api/v0/projects/${userAProjectId}/environments/${userAEnvId}`, token: userBToken, method: 'DELETE' })
     expect(res.status).toBe(403)
   })
 })
@@ -977,5 +980,246 @@ describe('auto-join by email domain', () => {
       userId: gmailUser.user.id,
       user: { id: gmailUser.user.id, name: 'GmailSkip', email: 'someone@gmail.com', emailVerified: true },
     })
+  })
+})
+
+// ── Member access — granular project + secret restrictions ──────────
+// Tests for the memberAccess table that gates per-member project access
+// and per-secret read/write restrictions. Admins always bypass all
+// restrictions. Members with zero access rules have full access
+// (backwards compatible). Members with access rules only see listed projects.
+
+describe('member access — project scoping', () => {
+  let adminToken: string
+  let memberToken: string
+  let memberId: string // orgMember.id
+  let memberUserId: string
+  let orgId: string
+  let projectAId: string
+  let projectBId: string
+  let projectADevEnvId: string
+  let projectBDevEnvId: string
+
+  beforeAll(async () => {
+    const admin = await createTestUser({ name: 'AccessAdmin' })
+    adminToken = admin.token
+    const member = await createTestUser({ name: 'AccessMember' })
+    memberToken = member.token
+    memberUserId = member.user.id
+
+    const af = authedFetch(adminToken)
+    const org = assertOk(await af('/api/v0/orgs', { method: 'POST', body: { name: 'Access Org' } }))
+    orgId = org.id
+
+    // Add member to org
+    const db = getDb()
+    const [memberRow] = await db.insert(schema.orgMember)
+      .values({ orgId, userId: memberUserId, role: 'member' })
+      .returning({ id: schema.orgMember.id })
+    memberId = memberRow!.id
+
+    // Create two projects
+    const projA = assertOk(await af('/api/v0/projects', { method: 'POST', body: { name: 'Project A', orgId } }))
+    const projB = assertOk(await af('/api/v0/projects', { method: 'POST', body: { name: 'Project B', orgId } }))
+    projectAId = projA.id
+    projectBId = projB.id
+
+    // Get env IDs
+    const envsA = assertOk(await af('/api/v0/projects/:pid/environments', { params: { pid: projectAId } }))
+    const envsB = assertOk(await af('/api/v0/projects/:pid/environments', { params: { pid: projectBId } }))
+    projectADevEnvId = envsA.environments.find((e) => e.slug === 'dev')!.id
+    projectBDevEnvId = envsB.environments.find((e) => e.slug === 'dev')!.id
+
+    // Seed secrets in both projects
+    assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', {
+      method: 'PUT', params: { pid: projectAId, eid: projectADevEnvId },
+      body: { secrets: { A_SECRET: 'a-value', A_OTHER: 'a-other' } },
+    }))
+    assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', {
+      method: 'PUT', params: { pid: projectBId, eid: projectBDevEnvId },
+      body: { secrets: { B_SECRET: 'b-value' } },
+    }))
+  })
+
+  test('no access rules = full access (backwards compatible)', async () => {
+    const mf = authedFetch(memberToken)
+    // Member with no access rules can see all projects
+    const projects = assertOk(await mf('/api/v0/projects'))
+    const orgProjects = projects.projects.filter((p) => p.orgId === orgId)
+    expect(orgProjects.length).toBe(2)
+
+    // Can access both projects' secrets
+    const secretsA = assertOk(await mf('/api/v0/projects/:pid/environments/:eid/secrets', {
+      params: { pid: projectAId, eid: projectADevEnvId },
+    }))
+    expect(secretsA.secrets.length).toBeGreaterThanOrEqual(1)
+
+    const secretsB = assertOk(await mf('/api/v0/projects/:pid/environments/:eid/secrets', {
+      params: { pid: projectBId, eid: projectBDevEnvId },
+    }))
+    expect(secretsB.secrets.length).toBeGreaterThanOrEqual(1)
+  })
+
+  test('access rules restrict to listed projects only', async () => {
+    const db = getDb()
+    // Give member access to only Project A
+    await db.insert(schema.memberAccess).values({
+      orgMemberId: memberId,
+      projectId: projectAId,
+    })
+
+    const mf = authedFetch(memberToken)
+
+    // Can see Project A
+    const projectA = assertOk(await mf('/api/v0/projects/:id', { params: { id: projectAId } }))
+    expect(projectA.name).toBe('Project A')
+
+    // Cannot see Project B (403)
+    assertErrorStatus(await mf('/api/v0/projects/:id', { params: { id: projectBId } }), 403)
+
+    // Project list only shows Project A
+    const projects = assertOk(await mf('/api/v0/projects'))
+    const orgProjects = projects.projects.filter((p) => p.orgId === orgId)
+    expect(orgProjects.map((p) => p.name)).toEqual(['Project A'])
+
+    // Cannot access Project B secrets (403 from requireSecretsApiAuth)
+    assertErrorStatus(await mf('/api/v0/projects/:pid/environments/:eid/secrets', {
+      params: { pid: projectBId, eid: projectBDevEnvId },
+    }), 403)
+
+    // Clean up access rules for next test
+    await db.delete(schema.memberAccess).where(orm.eq(schema.memberAccess.orgMemberId, memberId))
+  })
+
+  test('admin always has full access regardless of access rules', async () => {
+    const access = await getMemberProjectAccess({ userId: memberUserId, orgId, projectId: projectBId })
+    // After cleanup, member should have full access again
+    expect(access).toBe(true)
+
+    // Admin always has full access
+    const af = authedFetch(adminToken)
+    const projectB = assertOk(await af('/api/v0/projects/:id', { params: { id: projectBId } }))
+    expect(projectB.name).toBe('Project B')
+  })
+
+  test('getAccessibleProjectIds returns null for unrestricted member', async () => {
+    const ids = await getAccessibleProjectIds(memberUserId, orgId)
+    expect(ids).toBeNull()
+  })
+
+  test('getAccessibleProjectIds returns project list for restricted member', async () => {
+    const db = getDb()
+    await db.insert(schema.memberAccess).values({
+      orgMemberId: memberId,
+      projectId: projectAId,
+    })
+
+    const ids = await getAccessibleProjectIds(memberUserId, orgId)
+    expect(ids).toEqual([projectAId])
+
+    // Cleanup
+    await db.delete(schema.memberAccess).where(orm.eq(schema.memberAccess.orgMemberId, memberId))
+  })
+})
+
+describe('environment access roles', () => {
+  let adminToken: string
+  let memberToken: string
+  let orgId: string
+  let projectId: string
+  let devEnvId: string
+  let prodEnvId: string
+
+  beforeAll(async () => {
+    const admin = await createTestUser({ name: 'EnvRoleAdmin' })
+    adminToken = admin.token
+    const member = await createTestUser({ name: 'EnvRoleMember' })
+    memberToken = member.token
+
+    const af = authedFetch(adminToken)
+    const org = assertOk(await af('/api/v0/orgs', { method: 'POST', body: { name: 'EnvRole Org' } }))
+    orgId = org.id
+
+    const db = getDb()
+    await db.insert(schema.orgMember)
+      .values({ orgId, userId: member.user.id, role: 'member' })
+
+    const proj = assertOk(await af('/api/v0/projects', { method: 'POST', body: { name: 'EnvRole Project', orgId } }))
+    projectId = proj.id
+    const envs = assertOk(await af('/api/v0/projects/:pid/environments', { params: { pid: projectId } }))
+    devEnvId = envs.environments.find((e) => e.slug === 'dev')!.id
+    prodEnvId = envs.environments.find((e) => e.slug === 'prod')!.id
+
+    // Restrict prod environment to admin-only BEFORE any secret operations
+    // (resolveEnvironment is memoized, so the accessRole must be set first)
+    await db.update(schema.environment)
+      .set({ accessRole: 'admin' })
+      .where(orm.eq(schema.environment.id, prodEnvId))
+      .limit(1)
+
+    // Seed secrets in both environments (admin token bypasses prod restriction)
+    assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', {
+      method: 'PUT', params: { pid: projectId, eid: devEnvId },
+      body: { secrets: { DEV_SECRET: 'dev-value' } },
+    }))
+    assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', {
+      method: 'PUT', params: { pid: projectId, eid: prodEnvId },
+      body: { secrets: { PROD_SECRET: 'prod-value' } },
+    }))
+  })
+
+  test('member can access dev environment (accessRole=member)', async () => {
+    const mf = authedFetch(memberToken)
+    const result = assertOk(await mf('/api/v0/projects/:pid/environments/:eid/secrets', {
+      params: { pid: projectId, eid: devEnvId },
+    }))
+    expect(result.secrets.length).toBeGreaterThanOrEqual(1)
+  })
+
+  test('member cannot access prod environment (accessRole=admin) — 403', async () => {
+    const mf = authedFetch(memberToken)
+    // List secrets
+    assertErrorStatus(await mf('/api/v0/projects/:pid/environments/:eid/secrets', {
+      params: { pid: projectId, eid: prodEnvId },
+    }), 403)
+    // Get secret value
+    assertErrorStatus(await mf('/api/v0/projects/:pid/environments/:eid/secrets/:name', {
+      params: { pid: projectId, eid: prodEnvId, name: 'PROD_SECRET' },
+    }), 403)
+    // Set secret
+    assertErrorStatus(await mf('/api/v0/projects/:pid/environments/:eid/secrets', {
+      method: 'POST',
+      params: { pid: projectId, eid: prodEnvId },
+      body: { name: 'INJECTED', value: 'evil' },
+    }), 403)
+    // Delete secret
+    assertErrorStatus(await mf('/api/v0/projects/:pid/environments/:eid/secrets/:name', {
+      method: 'DELETE',
+      params: { pid: projectId, eid: prodEnvId, name: 'PROD_SECRET' },
+    }), 403)
+  })
+
+  test('admin can always access admin-restricted environments', async () => {
+    const af = authedFetch(adminToken)
+    const result = assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets/:name', {
+      params: { pid: projectId, eid: prodEnvId, name: 'PROD_SECRET' },
+    }))
+    expect(result.value).toBe('prod-value')
+  })
+
+  test('member can still access dev secrets normally', async () => {
+    const mf = authedFetch(memberToken)
+    const result = assertOk(await mf('/api/v0/projects/:pid/environments/:eid/secrets/:name', {
+      params: { pid: projectId, eid: devEnvId, name: 'DEV_SECRET' },
+    }))
+    expect(result.value).toBe('dev-value')
+  })
+
+  test('download blocked for member on admin-only environment', async () => {
+    const res = await app.handle(new Request(
+      `http://e.ly/api/v0/projects/${projectId}/environments/${prodEnvId}/secrets/download?format=json`,
+      { headers: { authorization: `Bearer ${memberToken}` } },
+    ))
+    expect(res.status).toBe(403)
   })
 })

@@ -157,9 +157,9 @@ export async function ensureOAuthClient(request: Request): Promise<string> {
   }
 
   // Allow *.workers.dev hosts so self-hosters can use the app immediately
-  // after deploying via the "Deploy to Cloudflare" button, before adding a
-  // custom domain. The Cache API (memoize) won't work on *.workers.dev but
-  // auth and the rest of the app function correctly.
+  // after deploying via `npx sigillo self-host`, before adding a custom
+  // domain. The Cache API (memoize) won't work on *.workers.dev but auth and
+  // the rest of the app function correctly.
 
   const origin = getRequestOrigin(request)
   // The redirect_uri MUST exactly match what genericOAuth sends to the provider's
@@ -322,12 +322,76 @@ export async function autoJoinOrgsByDomain(session: Session): Promise<void> {
   // Insert memberships with onConflictDoNothing — the unique index on
   // (org_id, user_id) prevents duplicates, so we skip already-joined orgs
   // without needing a separate membership read.
-  const queries = matchingOrgs.map((o) =>
+  const [firstQuery, ...restQueries] = matchingOrgs.map((o) =>
     db.insert(schema.orgMember)
       .values({ orgId: o.id, userId: session.userId, role: 'member' })
       .onConflictDoNothing({ target: [schema.orgMember.orgId, schema.orgMember.userId] }),
   )
-  await db.batch(queries as [any, ...any[]])
+  await db.batch([firstQuery!, ...restQueries])
+}
+
+// ── Granular project access ─────────────────────────────────────────
+// If a member has ZERO memberAccess rows → full access to all projects.
+// If a member has ANY memberAccess rows → only listed projects.
+// Admins always bypass all restrictions.
+
+// Check if a specific member has access to a specific project.
+export async function getMemberProjectAccess({ userId, orgId, projectId }: {
+  userId: string
+  orgId: string
+  projectId: string
+}): Promise<boolean> {
+  const db = getDb()
+
+  const member = await db.query.orgMember.findFirst({
+    where: { userId, orgId },
+    columns: { id: true, role: true },
+  })
+  if (!member) return false
+
+  // Admins always have full access
+  if (member.role === 'admin') return true
+
+  // Check if any memberAccess rows exist for this member
+  const accessRules = await db.query.memberAccess.findMany({
+    where: { orgMemberId: member.id },
+    columns: { projectId: true },
+  })
+
+  // No access rules → full access to everything (backwards compatible)
+  if (accessRules.length === 0) return true
+
+  // Check if the specific project is in the list
+  return accessRules.some((r) => r.projectId === projectId)
+}
+
+// Get list of project IDs a member can access, or null if unrestricted.
+// null = all projects (no memberAccess rows, or admin).
+// string[] = only these project IDs.
+export async function getAccessibleProjectIds(
+  userId: string,
+  orgId: string,
+): Promise<string[] | null> {
+  const db = getDb()
+
+  const member = await db.query.orgMember.findFirst({
+    where: { userId, orgId },
+    columns: { id: true, role: true },
+  })
+  if (!member) return []
+
+  // Admins always see everything
+  if (member.role === 'admin') return null
+
+  const accessRules = await db.query.memberAccess.findMany({
+    where: { orgMemberId: member.id },
+    columns: { projectId: true },
+  })
+
+  // No access rules → unrestricted
+  if (accessRules.length === 0) return null
+
+  return accessRules.map((r) => r.projectId)
 }
 
 // ── Org authorization ───────────────────────────────────────────────
@@ -382,6 +446,7 @@ type ResolvedEnvironment = {
   projectId: string
   name: string
   slug: string
+  accessRole: string
   createdAt: number
   updatedAt: number
   orgId: string | null
@@ -558,7 +623,10 @@ function forbiddenResponse(msg = 'forbidden'): Response {
   })
 }
 
-export type SecretsAuth = { userId: string; apiTokenId: null } | { userId: null; apiTokenId: string }
+export type SecretsAuth = (
+  | { userId: string; apiTokenId: null }
+  | { userId: null; apiTokenId: string }
+)
 
 // The environmentRef can be either a ULID or a slug. For token auth the
 // token's project scope is used to resolve slugs. For session auth we
@@ -598,6 +666,7 @@ export async function requireSecretsApiAuth(
       throw forbiddenResponse('token is scoped to a different environment')
     }
 
+    // API tokens bypass env access role checks; they have their own scoping.
     return { userId: null, apiTokenId: token.id, environmentId: env.id }
   }
 
@@ -612,6 +681,18 @@ export async function requireSecretsApiAuth(
     await requireOrgMember(session.userId, env.orgId)
   } catch {
     throw forbiddenResponse()
+  }
+
+  // Check granular project access
+  const hasProjectAccess = await getMemberProjectAccess({ userId: session.userId, orgId: env.orgId, projectId: env.projectId })
+  if (!hasProjectAccess) throw forbiddenResponse('you do not have access to this project')
+
+  // Check environment-level access role
+  if (env.accessRole === 'admin') {
+    const memberInfo = await lookupOrgMember(session.userId, env.orgId)
+    if (memberInfo?.role !== 'admin') {
+      throw forbiddenResponse('admin access required for this environment')
+    }
   }
 
   return { userId: session.userId, apiTokenId: null, environmentId: env.id }

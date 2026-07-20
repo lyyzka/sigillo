@@ -21,7 +21,8 @@ import { Button } from "sigillo-app/src/components/ui/button";
 import { Frame } from "sigillo-app/src/components/ui/frame";
 import { Input } from "sigillo-app/src/components/ui/input";
 import { formatTime } from "sigillo-app/src/lib/utils";
-import { createEnvAction, deleteEnvAction, renameEnvAction } from "../actions.ts";
+import { createEnvAction, deleteEnvAction, renameEnvAction, updateEnvironmentAccessRoleAction } from "../actions.ts";
+import { NativeSelect } from "sigillo-app/src/components/ui/native-select";
 import {
   Table,
   TableBody,
@@ -35,6 +36,7 @@ type Environment = {
   id: string;
   name: string;
   slug: string;
+  accessRole: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -171,6 +173,28 @@ export function EnvironmentsTable() {
       header: "Slug",
       size: 160,
       cell: ({ row }) => <EditableEnvCell env={row.original} field="slug" />,
+    },
+    {
+      accessorKey: "accessRole",
+      header: "Min Role",
+      size: 120,
+      cell: ({ row }) => (
+        <NativeSelect
+          value={row.original.accessRole}
+          onChange={async (e) => {
+            const nextRole: 'admin' | 'member' = e.currentTarget.value === 'admin' ? 'admin' : 'member'
+            if (nextRole === row.original.accessRole) return
+            try {
+              await updateEnvironmentAccessRoleAction({ environmentId: row.original.id, accessRole: nextRole })
+            } catch (err: any) {
+              alert(err?.message || 'Failed to update access role')
+            }
+          }}
+        >
+          <option value="member">Member</option>
+          <option value="admin">Admin</option>
+        </NativeSelect>
+      ),
     },
     {
       accessorKey: "updatedAt",

@@ -1,16 +1,17 @@
 // Access table for organization members.
-// Admins can change roles inline and remove members from the org.
+// Admins can change roles inline, remove members, and manage per-project access.
 
 "use client"
 
 import { useState } from "react"
-import { TrashIcon } from "lucide-react"
-import { removeOrgMemberAction, updateOrgMemberRoleAction } from "sigillo-app/src/actions"
+import { TrashIcon, PencilIcon } from "lucide-react"
+import { removeOrgMemberAction, updateOrgMemberRoleAction, updateMemberAccessAction } from "sigillo-app/src/actions"
 import { InviteButton } from "sigillo-app/src/components/invite-dialog"
 import { Button } from "sigillo-app/src/components/ui/button"
 import { Frame } from "sigillo-app/src/components/ui/frame"
 import { NativeSelect } from "sigillo-app/src/components/ui/native-select"
 import { Spinner } from "sigillo-app/src/components/ui/spinner"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "sigillo-app/src/components/ui/dialog"
 import { useLoaderData } from "spiceflow/react"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -21,6 +22,7 @@ type Member = {
   id: string
   createdAt: number
   role: "admin" | "member"
+  accessRules: { projectId: string }[]
   user: {
     id: string
     email: string | null
@@ -44,12 +46,13 @@ export function AccessPage() {
 }
 
 export function AccessTable() {
-  const { role, currentUserId, members } = useLoaderData('/dash/projects/:projectId/access')
+  const { role, currentUserId, members, orgProjects } = useLoaderData('/dash/projects/:projectId/access')
   const canManage = role === 'admin'
   const [roleOverrides, setRoleOverrides] = useState<Record<string, Member["role"]>>({})
   const [pendingRoleId, setPendingRoleId] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
 
   function getRole(member: Member) {
     return roleOverrides[member.id] ?? member.role
@@ -95,25 +98,26 @@ export function AccessTable() {
     })
   }
 
+  function getProjectAccessLabel(member: Member) {
+    if (getRole(member) === 'admin') return 'All (admin)'
+    if (member.accessRules.length === 0) return 'All'
+    return `${member.accessRules.length} of ${orgProjects.length}`
+  }
+
+  const editingMember = editingMemberId ? members.find((m) => m.id === editingMemberId) ?? null : null
+
   return (
     <div className="flex flex-col gap-3">
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      <Frame className="w-full">
-        <Table className="table-fixed">
-          <colgroup>
-            <col className="w-1/4" />
-            <col className="w-1/3" />
-            <col className="w-36" />
-            <col className="w-32" />
-            {canManage ? <col className="w-16" /> : null}
-          </colgroup>
+      <Frame className="w-full overflow-x-auto">
+        <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Joined</TableHead>
-              {canManage ? <TableHead /> : null}
+              <TableHead className="min-w-[180px]">Member</TableHead>
+              <TableHead className="w-28">Role</TableHead>
+              <TableHead className="w-28">Projects</TableHead>
+              <TableHead className="w-28">Joined</TableHead>
+              {canManage ? <TableHead className="w-12" /> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -124,32 +128,31 @@ export function AccessTable() {
               const isBusy = isSavingRole || isDeleting
               const isCurrentUser = member.user?.id === currentUserId
               const isLastAdmin = currentRole === "admin" && adminCount === 1
-
               return (
                 <TableRow key={member.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
+                  <TableCell className="max-w-[260px]">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       {member.user?.image ? (
-                        <img src={member.user.image} alt="" className="size-6 rounded-full object-cover" />
+                        <img src={member.user.image} alt="" className="size-7 shrink-0 rounded-full object-cover" />
                       ) : (
-                        <div className="size-6 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground">
+                        <div className="size-7 shrink-0 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground">
                           {(member.user?.name || member.user?.email || "?").charAt(0).toUpperCase()}
                         </div>
                       )}
-                      <span className="text-sm font-medium">{member.user?.name || "—"}</span>
+                      <div className="flex flex-col min-w-0 overflow-hidden">
+                        <span className="text-sm font-medium truncate">{member.user?.name || "—"}</span>
+                        <span className="text-xs text-muted-foreground truncate">{member.user?.email || "—"}</span>
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <span className="text-sm text-muted-foreground">{member.user?.email || "—"}</span>
-                  </TableCell>
-                  <TableCell>
                     {canManage ? (
-                      <div className="relative w-full">
+                      <div className="relative">
                         <NativeSelect
                           disabled={isBusy}
                           value={currentRole}
                           onChange={(event) => {
-                            const nextRole = event.currentTarget.value as Member["role"]
+                            const nextRole: Member['role'] = event.currentTarget.value === 'admin' ? 'admin' : 'member'
                             if (nextRole === currentRole) {
                               return
                             }
@@ -168,7 +171,17 @@ export function AccessTable() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <span className="text-muted-foreground text-xs tabular-nums">
+                    <button
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 whitespace-nowrap"
+                      disabled={currentRole === 'admin' || !canManage}
+                      onClick={() => canManage && currentRole !== 'admin' ? setEditingMemberId(member.id) : undefined}
+                    >
+                      {getProjectAccessLabel(member)}
+                      {canManage && currentRole !== 'admin' && <PencilIcon className="size-3 opacity-50" />}
+                    </button>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">
                       {formatTime(member.createdAt)}
                     </span>
                   </TableCell>
@@ -197,6 +210,118 @@ export function AccessTable() {
           </TableBody>
         </Table>
       </Frame>
+
+      <ManageAccessDialog
+        member={editingMember}
+        orgProjects={orgProjects}
+        open={!!editingMember}
+        onClose={() => setEditingMemberId(null)}
+      />
     </div>
+  )
+}
+
+// ── Manage Access Dialog ──────────────────────────────────────────────
+// Admins use this to configure per-project access and secret restrictions
+// for a specific member.
+
+function ManageAccessDialog({
+  member,
+  orgProjects,
+  open,
+  onClose,
+}: {
+  member: Member | null
+  orgProjects: { id: string; name: string }[]
+  open: boolean
+  onClose: () => void
+}) {
+  const existingRuleIds = new Set((member?.accessRules ?? []).map((r) => r.projectId))
+  const hasExistingRules = (member?.accessRules ?? []).length > 0
+
+  // State: which projects are checked
+  const [fullAccess, setFullAccess] = useState(!hasExistingRules)
+  const [projectChecked, setProjectChecked] = useState<Record<string, boolean>>(() => {
+    if (!hasExistingRules) {
+      return Object.fromEntries(orgProjects.map((p) => [p.id, true]))
+    }
+    return Object.fromEntries(orgProjects.map((p) => [p.id, existingRuleIds.has(p.id)]))
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSave() {
+    if (!member) return
+    setSaving(true)
+    setError(null)
+    try {
+      if (fullAccess) {
+        await updateMemberAccessAction({ memberId: member.id, projectIds: [] })
+      } else {
+        const selectedIds = orgProjects.filter((p) => projectChecked[p.id]).map((p) => p.id)
+        await updateMemberAccessAction({ memberId: member.id, projectIds: selectedIds })
+      }
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            Manage Access for {member?.user?.name || member?.user?.email || 'Member'}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4 px-6 py-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={fullAccess}
+              onChange={(e) => {
+                setFullAccess(e.target.checked)
+                if (e.target.checked) {
+                  setProjectChecked(Object.fromEntries(orgProjects.map((p) => [p.id, true])))
+                }
+              }}
+              className="accent-primary"
+            />
+            <span className="font-medium">Full access to all projects</span>
+          </label>
+
+          {!fullAccess && (
+            <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+              {orgProjects.map((project) => (
+                <label key={project.id} className="flex items-center gap-2 text-sm p-2 rounded border border-border">
+                  <input
+                    type="checkbox"
+                    checked={!!projectChecked[project.id]}
+                    onChange={(e) => setProjectChecked((prev) => ({ ...prev, [project.id]: e.target.checked }))}
+                    className="accent-primary"
+                  />
+                  <span className="font-medium">{project.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>
+            Cancel
+          </DialogClose>
+          <Button onClick={handleSave} loading={saving}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

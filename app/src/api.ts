@@ -28,7 +28,33 @@ import {
   decrypt,
   getEmailDomain,
   COMMON_EMAIL_DOMAINS,
+  getMemberProjectAccess,
+  getAccessibleProjectIds,
 } from './db.ts'
+import { memoize } from './lib/memoize.ts'
+
+// Latest GitHub release carrying a self-host bundle asset. Memoized via the
+// Cache API so the GitHub API is hit at most every few minutes.
+const fetchLatestSelfhostRelease = memoize({
+  namespace: 'selfhost-release',
+  fn: async (): Promise<{ version: string; url: string } | null> => {
+    const res = await fetch('https://api.github.com/repos/remorses/sigillo/releases?per_page=30', {
+      headers: { 'User-Agent': 'sigillo-app', Accept: 'application/vnd.github+json' },
+    })
+    if (!res.ok) return null
+    const releases: Array<{
+      tag_name: string
+      assets: Array<{ name: string; browser_download_url: string }>
+    }> = await res.json()
+    for (const release of releases) {
+      const asset = release.assets.find((a) => a.name === 'sigillo-selfhost-bundle.json.gz')
+      if (asset && release.tag_name.startsWith('sigillo@')) {
+        return { version: release.tag_name.slice('sigillo@'.length), url: asset.browser_download_url }
+      }
+    }
+    return null
+  },
+})
 
 const userSelectSchema = createSelectSchema(schema.user)
 const orgSelectSchema = createSelectSchema(schema.org)
@@ -317,15 +343,11 @@ export const apiApp = new Spiceflow()
       let autoJoinDomain: string | null = null
       if (body.enableAutoJoin) {
         if (!session.user.emailVerified) {
-          return new Response(JSON.stringify({ error: 'Email must be verified to enable auto-join' }), {
-            status: 400, headers: { 'content-type': 'application/json' },
-          })
+          throw json({ error: 'Email must be verified to enable auto-join' }, { status: 400 })
         }
         const domain = getEmailDomain(session.user.email)
         if (!domain || COMMON_EMAIL_DOMAINS.has(domain)) {
-          return new Response(JSON.stringify({ error: 'Cannot enable auto-join for public email domains' }), {
-            status: 400, headers: { 'content-type': 'application/json' },
-          })
+          throw json({ error: 'Cannot enable auto-join for public email domains' }, { status: 400 })
         }
         autoJoinDomain = domain
       }
@@ -412,26 +434,32 @@ export const apiApp = new Spiceflow()
         await requireApiOrgMember(session.userId, query.orgId)
       }
 
-      const projects = memberships.flatMap((membership) => {
-        if (!membership.org) return []
+      const projects: z.infer<typeof projectListItemSchema>[] = []
+      for (const membership of memberships) {
+        if (!membership.org) continue
         const org = membership.org
-        return org.projects.map((project) => ({
-          id: project.id,
-          orgId: project.orgId,
-          orgName: org.name,
-          name: project.name,
-          createdAt: project.createdAt,
-          updatedAt: project.updatedAt,
-          environments: project.environments.map((environment) => ({
-            id: environment.id,
-            projectId: environment.projectId,
-            name: environment.name,
-            slug: environment.slug,
-            createdAt: environment.createdAt,
-            updatedAt: environment.updatedAt,
-          })),
-        }))
-      })
+        const accessibleIds = await getAccessibleProjectIds(session.userId, org.id)
+        for (const project of org.projects) {
+          // If member has scoped access, skip projects not in their list
+          if (accessibleIds !== null && !accessibleIds.includes(project.id)) continue
+          projects.push({
+            id: project.id,
+            orgId: project.orgId,
+            orgName: org.name,
+            name: project.name,
+            createdAt: project.createdAt,
+            updatedAt: project.updatedAt,
+            environments: project.environments.map((environment) => ({
+              id: environment.id,
+              projectId: environment.projectId,
+              name: environment.name,
+              slug: environment.slug,
+              createdAt: environment.createdAt,
+              updatedAt: environment.updatedAt,
+            })),
+          })
+        }
+      }
       return { projects }
     },
   })
@@ -440,12 +468,13 @@ export const apiApp = new Spiceflow()
     method: 'GET',
     path: '/api/v0/projects/:id',
     detail: { tags: ['Projects'], summary: 'Get project' },
-    response: { 200: projectListItemSchema, 404: errorResponseSchema },
+    response: { 200: projectListItemSchema, 403: errorResponseSchema, 404: errorResponseSchema },
     async handler({ params, request }) {
       const session = await requireApiSession(request)
       const orgId = await getOrgIdForProject(params.id)
       if (!orgId) return json({ error: 'not found' }, { status: 404 })
       await requireApiOrgMember(session.userId, orgId)
+      if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: params.id })) return json({ error: 'forbidden' }, { status: 403 })
       const db = getDb()
       const project = await db.query.project.findFirst({
         where: { id: params.id },
@@ -476,13 +505,14 @@ export const apiApp = new Spiceflow()
     path: '/api/v0/projects/:id',
     detail: { tags: ['Projects'], summary: 'Update project' },
     request: projectCreateRequestSchema.pick({ name: true }),
-    response: { 200: projectMutationResponseSchema, 404: errorResponseSchema },
+    response: { 200: projectMutationResponseSchema, 403: errorResponseSchema, 404: errorResponseSchema },
     async handler({ params, request }) {
       const body = await request.json()
       const session = await requireApiSession(request)
       const orgId = await getOrgIdForProject(params.id)
       if (!orgId) return json({ error: 'not found' }, { status: 404 })
       await requireApiOrgMember(session.userId, orgId)
+      if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: params.id })) return json({ error: 'forbidden' }, { status: 403 })
       const db = getDb()
       const [updated] = await db.update(schema.project)
         .set({ name: body.name, updatedAt: Date.now() })
@@ -497,12 +527,13 @@ export const apiApp = new Spiceflow()
     method: 'DELETE',
     path: '/api/v0/projects/:id',
     detail: { tags: ['Projects'], summary: 'Delete project' },
-    response: { 200: projectDeleteResponseSchema, 404: errorResponseSchema },
+    response: { 200: projectDeleteResponseSchema, 403: errorResponseSchema, 404: errorResponseSchema },
     async handler({ params, request }) {
       const session = await requireApiSession(request)
       const orgId = await getOrgIdForProject(params.id)
       if (!orgId) return json({ error: 'not found' }, { status: 404 })
       await requireApiOrgMember(session.userId, orgId)
+      if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: params.id })) return json({ error: 'forbidden' }, { status: 403 })
       const db = getDb()
       const [deleted] = await db.delete(schema.project).where(orm.eq(schema.project.id, params.id)).returning({ id: schema.project.id })
       if (!deleted) return json({ error: 'not found' }, { status: 404 })
@@ -756,15 +787,14 @@ export const apiApp = new Spiceflow()
 
       const entries = Object.entries(body.secrets)
       const encrypted = await Promise.all(entries.map(([, value]) => encrypt(value)))
-      await db.batch(
-        entries.map(([name], i) =>
-          db.insert(schema.secretEvent).values({
-            environmentId: auth.environmentId, name,
-            operation: 'set', valueEncrypted: encrypted[i]!.encrypted, iv: encrypted[i]!.iv,
-            userId: auth.userId, apiTokenId: auth.apiTokenId,
-          }),
-        ) as [any, ...any[]],
+      const [firstInsert, ...restInserts] = entries.map(([name], i) =>
+        db.insert(schema.secretEvent).values({
+          environmentId: auth.environmentId, name,
+          operation: 'set', valueEncrypted: encrypted[i]!.encrypted, iv: encrypted[i]!.iv,
+          userId: auth.userId, apiTokenId: auth.apiTokenId,
+        }),
       )
+      if (firstInsert) await db.batch([firstInsert, ...restInserts])
       return { ok: true, environmentId: auth.environmentId, secrets: entries.map(([name]) => name) }
     },
   })
@@ -806,6 +836,23 @@ export const apiApp = new Spiceflow()
     async handler({ request }) {
       const colo = getDataCenter(request)
       return { colo }
+    },
+  })
+
+  // ── Self-host release (public) ──────────────────────────────────
+  // Resolves the latest self-host bundle for `npx sigillo self-host`.
+  // The CLI downloads through this endpoint (with a GitHub API fallback)
+  // so paid update gating can be added here later without any CLI change.
+  .route({
+    method: 'GET',
+    path: '/api/selfhost/release/latest',
+    detail: { hide: true },
+    async handler() {
+      const info = await fetchLatestSelfhostRelease()
+      if (!info) {
+        return json({ error: 'No self-host release found' }, { status: 404 })
+      }
+      return info
     },
   })
 

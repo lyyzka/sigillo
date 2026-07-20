@@ -19,6 +19,8 @@ import {
   deriveEnvironmentSecretsAndNames,
   decrypt,
   autoJoinOrgsByDomain,
+  getAccessibleProjectIds,
+  getMemberProjectAccess,
 } from './db.ts'
 import { apiApp } from './api.ts'
 import { cn } from 'sigillo-app/src/lib/utils'
@@ -115,16 +117,19 @@ export const app = new Spiceflow()
     const session = await requirePageSession(request)
     await requirePageOrgMember(session.userId, params.orgId)
 
+    const accessibleIds = await getAccessibleProjectIds(session.userId, params.orgId)
     const allProjects = await db.query.project.findMany({
       where: { orgId: params.orgId },
       with: { environments: true },
       orderBy: { createdAt: 'desc' },
     })
 
-    const projects = allProjects.map((p) => {
-      const sortedEnvs = [...(p.environments || [])].sort((a, b) => a.createdAt - b.createdAt)
-      return { id: p.id, name: p.name, firstEnvSlug: sortedEnvs[0]?.slug ?? null }
-    })
+    const projects = allProjects
+      .filter((p) => accessibleIds === null || accessibleIds.includes(p.id))
+      .map((p) => {
+        const sortedEnvs = [...(p.environments || [])].sort((a, b) => a.createdAt - b.createdAt)
+        return { id: p.id, name: p.name, firstEnvSlug: sortedEnvs[0]?.slug ?? null }
+      })
 
     return {
       orgId: params.orgId,
@@ -144,16 +149,24 @@ export const app = new Spiceflow()
     if (!orgId) throw Response.redirect(new URL('/', request.url).toString(), 302)
     await requirePageOrgMember(session.userId, orgId)
 
+    // Check the current user has access to this project
+    if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId })) {
+      throw Response.redirect(new URL('/', request.url).toString(), 302)
+    }
+
+    const accessibleIds = await getAccessibleProjectIds(session.userId, orgId)
     const allProjects = await db.query.project.findMany({
       where: { orgId },
       with: { environments: true },
       orderBy: { createdAt: 'desc' },
     })
 
-    const projects = allProjects.map((p) => {
-      const sortedEnvs = [...(p.environments || [])].sort((a, b) => a.createdAt - b.createdAt)
-      return { id: p.id, name: p.name, firstEnvSlug: sortedEnvs[0]?.slug ?? null }
-    })
+    const projects = allProjects
+      .filter((p) => accessibleIds === null || accessibleIds.includes(p.id))
+      .map((p) => {
+        const sortedEnvs = [...(p.environments || [])].sort((a, b) => a.createdAt - b.createdAt)
+        return { id: p.id, name: p.name, firstEnvSlug: sortedEnvs[0]?.slug ?? null }
+      })
     const currentProject = allProjects.find((project) => project.id === projectId)
     const environments = [...(currentProject?.environments || [])].sort((a, b) => a.createdAt - b.createdAt)
 
@@ -309,6 +322,7 @@ export const app = new Spiceflow()
   .loader('/dash/projects/:projectId/envs/:envSlug', async ({ request, params, redirect }) => {
     const db = getDb()
     const { projectId, envSlug } = params
+    const session = await requirePageSession(request)
 
     const environments = await db.query.environment.findMany({
       where: { projectId },
@@ -383,17 +397,28 @@ export const app = new Spiceflow()
     if (!orgId) throw redirect('/')
     const { role } = await requirePageOrgMember(session.userId, orgId)
 
-    const members = await db.query.orgMember.findMany({
-      where: { orgId },
-      with: { user: { columns: { id: true, name: true, email: true, image: true } } },
-      orderBy: { createdAt: 'asc' },
-    })
+    const [members, orgProjects] = await Promise.all([
+      db.query.orgMember.findMany({
+        where: { orgId },
+        with: {
+          user: { columns: { id: true, name: true, email: true, image: true } },
+          accessRules: { columns: { projectId: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      db.query.project.findMany({
+        where: { orgId },
+        columns: { id: true, name: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ])
 
     return {
       orgId,
       role,
       currentUserId: session.userId,
       members,
+      orgProjects,
     }
   })
 
@@ -773,9 +798,12 @@ function Navbar({ mobileMenuSlot }: { mobileMenuSlot?: React.ReactNode }) {
         <div className="flex h-14 items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-2">
             {mobileMenuSlot}
-            <Link href="/" className="text-primary hover:opacity-80 transition-opacity">
+            {/* Plain <a>: the docs home route is registered as '' (holocron
+                index.mdx), so '/' is not in the typed Link path union. A full
+                navigation to the docs shell is fine here. */}
+            <a href="/" className="text-primary hover:opacity-80 transition-opacity">
               <SigilloLogo className="h-[36px] w-auto shrink-0" />
-            </Link>
+            </a>
           </div>
           <div className="hidden md:flex items-center gap-3">
             <a

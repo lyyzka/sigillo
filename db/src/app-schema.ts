@@ -107,6 +107,10 @@ export const orgInvitation = sqliteCore.sqliteTable('org_invitation', {
   id: sqliteCore.text('id').primaryKey().notNull().$defaultFn(() => ulid()),
   orgId: sqliteCore.text('org_id').notNull().references(() => org.id, { onDelete: 'cascade' }),
   role: sqliteCore.text('role', { enum: ['admin', 'member'] }).notNull().default('member'),
+  // JSON array of project IDs the invited user will have access to.
+  // null = all projects (unrestricted). When set, acceptInviteAction
+  // creates memberAccess rows for each listed project.
+  projectIds: sqliteCore.text('project_ids'),
   createdBy: sqliteCore.text('created_by').notNull().references(() => user.id, { onDelete: 'cascade' }),
   expiresAt: epochMs('expires_at').notNull(),
   createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
@@ -137,6 +141,10 @@ export const environment = sqliteCore.sqliteTable('environment', {
   projectId: sqliteCore.text('project_id').notNull().references(() => project.id, { onDelete: 'cascade' }),
   name: sqliteCore.text('name').notNull(),
   slug: sqliteCore.text('slug').notNull(),
+  // Minimum org role required to access secrets in this environment.
+  // 'member' = everyone, 'admin' = only admins can read/write secrets.
+  // Use this to restrict production environments to admins only.
+  accessRole: sqliteCore.text('access_role', { enum: ['admin', 'member'] }).notNull().default('member'),
   createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
   updatedAt: epochMs('updated_at').notNull().$defaultFn(() => Date.now()),
 }, (table) => [
@@ -191,6 +199,28 @@ export const apiToken = sqliteCore.sqliteTable('api_token', {
   sqliteCore.index('api_token_hashed_key_idx').on(table.hashedKey),
 ])
 
+// ── Member access (project-level permissions) ──────────────────────
+// Scopes a member's access to specific projects within their org.
+// If a member has ZERO memberAccess rows, they have access to ALL projects
+// (backwards compatible with the current all-or-nothing model).
+// If a member has ANY memberAccess rows, they only see listed projects.
+// Admins always bypass all restrictions regardless of memberAccess rows.
+
+export const memberAccess = sqliteCore.sqliteTable('member_access', {
+  id: sqliteCore.text('id').primaryKey().notNull().$defaultFn(() => ulid()),
+  orgMemberId: sqliteCore.text('org_member_id').notNull()
+    .references(() => orgMember.id, { onDelete: 'cascade' }),
+  projectId: sqliteCore.text('project_id').notNull()
+    .references(() => project.id, { onDelete: 'cascade' }),
+  createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
+  updatedAt: epochMs('updated_at').notNull().$defaultFn(() => Date.now()),
+}, (table) => [
+  sqliteCore.uniqueIndex('member_access_member_project_unique')
+    .on(table.orgMemberId, table.projectId),
+  sqliteCore.index('member_access_org_member_id_idx').on(table.orgMemberId),
+  sqliteCore.index('member_access_project_id_idx').on(table.projectId),
+])
+
 // Default environments created for every new project
 export const DEFAULT_ENVIRONMENTS = [
   { name: 'Dev', slug: 'dev' },
@@ -230,7 +260,7 @@ export const deviceCode = sqliteCore.sqliteTable('device_code', {
 // ── Relations (v2 API) ──────────────────────────────────────────────
 
 export const relations = defineRelations(
-  { user, session, account, verification, org, orgMember, orgInvitation, project, environment, secretEvent, apiToken, deviceCode, oauthDomain },
+  { user, session, account, verification, org, orgMember, orgInvitation, project, environment, secretEvent, apiToken, deviceCode, oauthDomain, memberAccess },
   (r) => ({
     user: {
       sessions: r.many.session(),
@@ -259,6 +289,7 @@ export const relations = defineRelations(
     orgMember: {
       org: r.one.org({ from: r.orgMember.orgId, to: r.org.id }),
       user: r.one.user({ from: r.orgMember.userId, to: r.user.id }),
+      accessRules: r.many.memberAccess(),
     },
     orgInvitation: {
       org: r.one.org({ from: r.orgInvitation.orgId, to: r.org.id }),
@@ -285,6 +316,10 @@ export const relations = defineRelations(
     },
     deviceCode: {
       user: r.one.user({ from: r.deviceCode.userId, to: r.user.id }),
+    },
+    memberAccess: {
+      orgMember: r.one.orgMember({ from: r.memberAccess.orgMemberId, to: r.orgMember.id }),
+      project: r.one.project({ from: r.memberAccess.projectId, to: r.project.id }),
     },
     oauthDomain: {},
   }),
