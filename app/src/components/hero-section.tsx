@@ -43,6 +43,7 @@ export function HeroSection() {
         className='absolute inset-0 w-full h-full'
         canvasClassName='dark:opacity-60 opacity-40'
         dotColor='#6ec9a0'
+        dotAlphaMultiplier={0.7}
         dotSize={6}
         minDotSize={1}
         dotMargin={1}
