@@ -13,7 +13,13 @@ import { ConsentButtons } from './components/consent-buttons.tsx'
 import { SigilloLogo } from 'sigillo-app/src/components/logo.tsx'
 
 
-function ConsentScreen({ redirectDomain }: { redirectDomain: string | null }) {
+function ConsentScreen({
+  redirectDomain,
+  switchAccountUrl,
+}: {
+  redirectDomain: string | null
+  switchAccountUrl: string
+}) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10 sm:px-6">
       <section className="w-full max-w-sm">
@@ -41,6 +47,16 @@ function ConsentScreen({ redirectDomain }: { redirectDomain: string | null }) {
         <div className="mt-6">
           <ConsentButtons />
         </div>
+
+        <p className="mt-6 text-sm leading-6 text-muted-foreground">
+          Wrong account?{' '}
+          <a
+            href={switchAccountUrl}
+            className="font-medium text-foreground underline underline-offset-4 hover:no-underline"
+          >
+            Sign in with a different Google account
+          </a>
+        </p>
       </section>
     </main>
   )
@@ -96,11 +112,20 @@ export const app = new Spiceflow()
   // freshly created provider session and resume the original OAuth authorize
   // request. Otherwise it would immediately start another Google sign-in and
   // loop forever between /sign-in and accounts.google.com.
+  //
+  // ?switch=1 forces a new Google sign-in even with an active provider
+  // session (used by the "different account" link on the consent screen).
+  // Google shows the account picker because prompt=select_account is set on
+  // the social provider. The param is stripped from the callback URL so the
+  // post-Google redirect takes the normal session shortcut instead of
+  // looping back to Google.
   .get('/sign-in', async ({ request }) => {
     const currentUrl = new URL(request.url)
+    const switchAccount = currentUrl.searchParams.get('switch') === '1'
+    currentUrl.searchParams.delete('switch')
     const auth = getAuth()
     const session = await auth.api.getSession({ headers: request.headers })
-    if (session) {
+    if (session && !switchAccount) {
       const authorizeUrl = new URL('/api/auth/oauth2/authorize', currentUrl.origin)
       authorizeUrl.search = currentUrl.search
       return Response.redirect(authorizeUrl.toString(), 302)
@@ -143,12 +168,21 @@ export const app = new Spiceflow()
       return Response.redirect(result.url, 302)
     }
 
-    return <ConsentScreen redirectDomain={redirectDomain} />
+    // The consent URL carries the original authorize params, so /sign-in can
+    // restart the flow with them and resume authorize after Google returns.
+    const switchParams = new URLSearchParams(url.search)
+    switchParams.set('switch', '1')
+    return (
+      <ConsentScreen
+        redirectDomain={redirectDomain}
+        switchAccountUrl={`/sign-in?${switchParams}`}
+      />
+    )
   })
 
   // Preview route to see consent UI without initiating an auth flow
   .page('/consent-preview', async () => {
-    return <ConsentScreen redirectDomain="my-app.example.com" />
+    return <ConsentScreen redirectDomain="my-app.example.com" switchAccountUrl="/sign-in?switch=1" />
   })
 
   // ── Well-known endpoints ─────────────────────────────────────
