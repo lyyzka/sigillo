@@ -23,5 +23,8 @@
     "drizzle-orm": "1.0.0-rc.1",
     "typescript": "^6.0.2",
     "ulid": "^3.0.2"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1"
   }
 }
