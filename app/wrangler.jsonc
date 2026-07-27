@@ -27,9 +27,14 @@
   ],
   "vars": {
     "PROVIDER_URL": "https://auth.sigillo.dev",
+    // Strada observability (strada.sh). Only set on our own deployments —
+    // self-hosted instances never get these bindings, so their telemetry
+    // stays off entirely (server and browser init are both runtime-gated).
+    "STRADA_PROJECT_ID": "01KYG3WH29HF243E8YGAHVHH52",
+    "STRADA_ENVIRONMENT": "production",
   },
   "secrets": {
-    "required": ["BETTER_AUTH_SECRET"],
+    "required": ["BETTER_AUTH_SECRET", "STRADA_TOKEN"],
   },
   "routes": [
     {
@@ -54,9 +59,11 @@
       ],
       "vars": {
         "PROVIDER_URL": "https://auth.preview.sigillo.dev",
+        "STRADA_PROJECT_ID": "01KYG3WH29HF243E8YGAHVHH52",
+        "STRADA_ENVIRONMENT": "preview",
       },
       "secrets": {
-        "required": ["BETTER_AUTH_SECRET"],
+        "required": ["BETTER_AUTH_SECRET", "STRADA_TOKEN"],
       },
       "routes": [
         {

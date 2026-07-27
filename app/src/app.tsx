@@ -11,6 +11,8 @@
 import './globals.css'
 import { Spiceflow } from 'spiceflow'
 import { Head, Link, ProgressBar, router } from 'spiceflow/react'
+import { env } from 'cloudflare:workers'
+import { initStrada, trace } from '@strada.sh/sdk'
 import {
   getDb, getAuth, getSession,
   requirePageSession,
@@ -49,7 +51,13 @@ function hasCookie(args: { cookieHeader: string; name: string }) {
     .some((part) => part.trim().startsWith(`${args.name}=`))
 }
 
-export const app = new Spiceflow()
+// Strada observability (strada.sh). trace.getTracer returns a proxy that
+// delegates to the provider registered by initStrada() in the fetch handler,
+// so module-level creation is safe. Self-hosted instances have no
+// STRADA_PROJECT_ID binding → tracer stays a noop and zero requests are made.
+const tracer = trace.getTracer('sigillo-app')
+
+export const app = new Spiceflow({ tracer })
 
   // ── BetterAuth middleware ──────────────────────────────────────
   // BetterAuth runs in the worker, not the DO. Only SQL crosses the
@@ -676,6 +684,7 @@ function AppShell({ children, mobileMenuSlot, request }: { children: React.React
         <Head.Link rel="icon" type="image/png" href="/favicon.png" />
       </Head>
       <body className="relative flex flex-col min-h-screen bg-background font-sans antialiased">
+        <StradaShellBrowser />
         <script dangerouslySetInnerHTML={{ __html: appThemeScript }} />
         <ProgressBar color="var(--primary)" />
         <Navbar mobileMenuSlot={mobileMenuSlot} />
@@ -874,10 +883,32 @@ async function Footer() {
   )
 }
 
+// Browser telemetry: project id is passed at request time from the worker
+// env instead of being inlined at build time, because the same vite build
+// output is packaged into the self-host bundle. Self-hosted instances have
+// no STRADA_PROJECT_ID binding, so this renders nothing for them.
+async function StradaShellBrowser() {
+  if (!env.STRADA_PROJECT_ID) return null
+  const { StradaBrowser } = await import('sigillo-app/src/components/strada-browser')
+  return <StradaBrowser projectId={env.STRADA_PROJECT_ID} environment={env.STRADA_ENVIRONMENT} />
+}
+
 export type App = typeof app
 
 export default {
-  fetch: (request: Request) => app.handle(request),
+  fetch: (request: Request) => {
+    // Safe to call on every request — no-op after the first call.
+    // Gated so self-hosted instances (no STRADA_PROJECT_ID binding) send nothing.
+    if (env.STRADA_PROJECT_ID) {
+      initStrada({
+        projectId: env.STRADA_PROJECT_ID,
+        token: env.STRADA_TOKEN,
+        service: 'sigillo-app',
+        environment: env.STRADA_ENVIRONMENT,
+      })
+    }
+    return app.handle(request)
+  },
 } satisfies ExportedHandler<Env>
 
 declare module 'spiceflow/react' {

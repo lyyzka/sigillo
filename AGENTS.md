@@ -88,6 +88,78 @@ Always load these skills before working on this project:
 - **`cloudflare-workers`** — wrangler.jsonc config, type-safe env, deploy scripts, preview/production environments
 - **`drizzle`** — schema conventions, namespace imports, query API, migrations, D1 driver setup
 - **`spiceflow`** — API routes + React Server Components framework (fetch latest README every time)
+- **`strada`** — observability (errors, traces, logs). Load when debugging production issues or touching error handling code
+
+## Observability (Strada)
+
+The app worker reports to Strada project `sigillo-prod` (org Personal). Query with `strada issues list`, `strada logs`, `strada query` — the folder scope is already configured, no `-p` flag needed.
+
+How it's wired (all in `app/`):
+- `wrangler.jsonc` — `STRADA_PROJECT_ID` + `STRADA_ENVIRONMENT` vars (production/preview), `STRADA_TOKEN` required secret
+- `src/app.tsx` — `initStrada()` in the default fetch handler + `trace.getTracer('sigillo-app')` passed to the Spiceflow constructor for request/route spans
+- `src/components/strada-browser.tsx` — browser telemetry (pageviews, uncaught + React render errors)
+- `vite.config.ts` — `stradaVitePlugin()` tags browser telemetry with git commit/branch
+
+Rules:
+- **Self-hosted instances must never send telemetry.** The same vite build output ships in the self-host bundle, so the browser project id is passed at request time from `env.STRADA_PROJECT_ID` (server prop), never inlined at build time via a public env var. Server init is gated on the same binding. Self-hosted workers have no `STRADA_*` bindings → zero telemetry.
+- **All inline-handled errors must call `captureException` from `@strada.sh/sdk`** instead of being swallowed with `console.error`/`console.warn`. This applies to any handler that catches an error and returns a response instead of rethrowing (webhooks, device flow polling, background work). Always pass `tags` with at least a `route` or `handler` identifier.
+- **Do not add `captureException` around errors you rethrow.** Spiceflow's instrumentation already calls `span.recordException()` on any error that escapes a route or server action (see `recordError` in `spiceflow/dist/instrumentation.js`), and it deliberately ignores thrown `Response` objects. Capturing manually before rethrowing double-reports the same error.
+- **Never swallow an unexpected error to produce an authorization outcome.** `requireApiOrgMember` / `requirePageOrgMember` in `src/db.ts` only catch `ForbiddenError`; anything else rethrows. A bare `catch {}` there used to turn D1 outages into a bogus 403/redirect, which is invisible in Strada and misleading to users.
+- **Client components must not statically import `@strada.sh/sdk`.** It pulls the OTel browser runtime into the main client chunk for every visitor, including self-hosters who never initialize it. `strada-browser.tsx` is reached via `await import()` from a server component, so it stays a lazy chunk; do the same (`const { captureException } = await import('@strada.sh/sdk')`) inside browser error paths.
+- Use `getLogger()` from `@strada.sh/sdk` for logs that should be queryable, not `console.*`.
+- `drizzle-orm` has an optional peer on `@opentelemetry/api`. It's declared as a direct dependency in `db/` and `provider/` so every workspace package resolves the same drizzle instance (otherwise pnpm splits it into two peer-variants and cross-package drizzle types break).
+
+## better-auth version alignment (never use `latest`)
+
+`better-auth` and `@better-auth/oauth-provider` are published from the same repo and **must stay on the same release line**. `provider/package.json` pins the plugin to an exact version (`1.7.0-beta.4`) on purpose:
+
+```json
+"@better-auth/oauth-provider": "1.7.0-beta.4",
+"better-auth": "^1.7.0-beta.4",
+```
+
+`@better-auth/oauth-provider` used to be `"latest"`, which silently floated onto the **stable 1.6.x line** while `better-auth` stayed on `1.7.0-beta`. That mismatch produced two separate failures that look unrelated but share one cause:
+
+| Symptom | Where |
+|---|---|
+| `"dispatchAuthEndpoint" is not exported by better-auth/api` | `pnpm --dir provider build` |
+| `TS2883: ... cannot be named without a reference to 'MiddlewareInputContext' from better-call` | `pnpm --dir provider typecheck` |
+| `TS2339: Property 'oauth2' does not exist on type ...` | `consent-buttons.tsx` |
+| a wall of `@better-fetch/fetch@1.1.21` vs `@1.3.1` `ResponseContext` errors | `pnpm --dir provider typecheck` |
+
+The two release lines pin **different exact versions** of `@better-fetch/fetch`, `better-call`, and `@better-auth/utils`, so pnpm installed both copies and the duplicate types stopped unifying. A previous attempt papered over this with `pnpm.overrides` forcing the newer trio; that only masked the symptom and left `better-auth` running against transitive deps it does not pin. Aligning the release lines removed the need for any override.
+
+Rules:
+- Never use `latest` or a floating range for `@better-auth/oauth-provider`. Pin it exactly.
+- When bumping `better-auth`, bump `@better-auth/oauth-provider` to the **same version string** in the same commit.
+- After any better-auth change run both `pnpm --dir provider typecheck` and `pnpm --dir provider build`. Typecheck alone does not catch the missing-export failure.
+- If duplicate peer variants reappear (e.g. two `jose` copies causing `TS2883`), run `pnpm dedupe` before reaching for `pnpm.overrides`.
+
+The remaining `unmet peer drizzle-orm@^0.45.2: found 1.0.0-rc.1` warning from `pnpm install` is expected — the app intentionally runs drizzle 1.0 rc.
+
+## packageExtensions for safe-mdx
+
+`safe-mdx` imports `react-dom` (`prefetchDNS`, `preconnect`) but only declares `react` as a peer dependency, so pnpm builds a react-only variant and Vite fails to load the config with `Cannot find package 'react-dom'`. The root `package.json` corrects the metadata locally:
+
+```json
+"packageExtensions": {
+  "safe-mdx": { "peerDependencies": { "react-dom": "*" } }
+}
+```
+
+The real fix belongs upstream in https://github.com/holocron-hq/safe-mdx — remove this once the peer is declared there.
+
+## spiceflow must be a single instance
+
+`@holocron.so/vite` pins an **exact** spiceflow version. `app/package.json` and `provider/package.json` must pin the **same** exact version or the vite plugin throws `assertSingleSpiceflowInstance`. When bumping holocron, check its pinned spiceflow version and match it:
+
+```bash
+rg '"spiceflow"' node_modules/.pnpm/@holocron.so+vite@*/node_modules/@holocron.so/vite/package.json
+```
+
+## blake3-wasm is pinned to match wrangler
+
+`app/package.json` pins `blake3-wasm` to `2.1.5` with no caret. `scripts/build-selfhost-bundle.ts` precomputes asset hashes with the same algorithm wrangler uses, so the version must match wrangler's own `blake3-wasm` dependency exactly or the self-host asset manifest will not match what the Cloudflare API expects. Do not bump it independently; check `node_modules/.pnpm/wrangler@*/node_modules/wrangler/package.json` first.
 
 ## Deployments
 
@@ -143,6 +215,22 @@ pnpm --dir app db:migrate:local
 ```
 
 If local dev crashes with `no such table`, assume the local D1 migrations were not applied to that worker's local database yet.
+
+## Tests
+
+`pnpm --dir app test` runs the integration suite inside workerd via `@cloudflare/vitest-pool-workers`, against real D1, real Cache API, and real AES-256-GCM. The whole suite should finish in **under 15 seconds**. If it takes minutes, something is hanging, not working hard.
+
+### Outbound HTTP must be answered locally
+
+`app/vite.config.ts` installs a miniflare `outboundService` (`testOutboundService`) that intercepts **every** outbound fetch from the worker under test and returns a 501 for anything it does not recognize.
+
+This is not a nicety. betterAuth's `genericOAuth` plugin resolves `discoveryUrl` during plugin init and **awaits** it before any auth endpoint runs. `wrangler.test.jsonc` sets `PROVIDER_URL` to `https://provider.invalid`, and in workerd a fetch to an unresolvable host **never settles** — it neither resolves nor rejects. Every test that called `auth.api.*` (i.e. every test that created a user) silently timed out at 5s, and the failures surfaced on unrelated-looking tests.
+
+Rules:
+- Any new outbound dependency in a code path under test must get a branch in `testOutboundService`. Do not reach for the network.
+- `TEST_PROVIDER_ORIGIN` in `vite.config.ts` must match `PROVIDER_URL` in `wrangler.test.jsonc`.
+- `fetchMock` from `cloudflare:test` no longer exists — it was removed in `@cloudflare/vitest-pool-workers@0.16`. Use `outboundService`, not a mocking library.
+- When a test hangs with no error, check for an unmocked outbound fetch first. Wrapping the suspect call in `Promise.race` with a timeout and logging `globalThis.fetch` calls is the fastest way to find it.
 
 ## D1 migrations (remote)
 

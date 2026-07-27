@@ -374,7 +374,15 @@ export function FooterColo() {
         const info: { colo?: unknown } = Object(data)
         setColo(typeof info.colo === 'string' ? info.colo : null)
       })
-      .catch((error) => console.warn('Failed to load colo info', error));
+      // Lazy import so @strada.sh/sdk (and the OTel browser runtime it pulls
+      // in) stays out of the main client bundle. Self-hosted instances never
+      // initialize Strada, so captureException is a no-op there.
+      .catch(async (error) => {
+        const { captureException } = await import("@strada.sh/sdk");
+        captureException(error, {
+          tags: { component: "FooterColo", route: "/api/info" },
+        });
+      });
   }, []);
 
   if (!colo) return null;

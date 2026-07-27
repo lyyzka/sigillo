@@ -17,6 +17,7 @@
 import superjson from 'superjson'
 import { waitUntil } from 'cloudflare:workers'
 import { getDeploymentId } from 'spiceflow'
+import { captureException } from '@strada.sh/sdk'
 
 // Use 0.0.0.0 to avoid DNS lookups on cache key URLs (non-routable IP)
 const CACHE_BASE = 'https://0.0.0.0/'
@@ -61,44 +62,51 @@ export function memoize<Args extends unknown[], T>(
       }
 
       if (swr > 0 && age < ttl + swr) {
-        waitUntil(refreshCache(cache, req, fn, args, ttl + swr))
+        waitUntil(refreshCache({ cache, req, fn, args, maxAge: ttl + swr, namespace }))
         return envelope.value
       }
     }
 
     const value = await fn(...args)
     if (shouldCache(value)) {
-      waitUntil(putCache(cache, req, value, ttl + swr))
+      waitUntil(putCache({ cache, req, value, maxAge: ttl + swr, namespace }))
     }
     return value
   }
 }
 
-async function refreshCache<Args extends unknown[], T>(
-  cache: Cache,
-  req: Request,
-  fn: (...args: Args) => Promise<T>,
-  args: Args,
-  maxAge: number,
-): Promise<void> {
+// Background work runs in waitUntil(), so nothing above it can observe a
+// failure. Every catch here reports to Strada instead of swallowing —
+// otherwise a permanently broken SWR refresh is completely invisible and
+// users just keep getting stale data until the entry expires.
+async function refreshCache<Args extends unknown[], T>({ cache, req, fn, args, maxAge, namespace }: {
+  cache: Cache
+  req: Request
+  fn: (...args: Args) => Promise<T>
+  args: Args
+  maxAge: number
+  namespace: string
+}): Promise<void> {
   try {
     const value = await fn(...args)
     if (shouldCache(value)) {
-      await putCache(cache, req, value, maxAge)
+      await putCache({ cache, req, value, maxAge, namespace })
     } else {
-      await cache.delete(req).catch(() => {})
+      await cache.delete(req)
     }
-  } catch {
-    // Background refresh failed; stale entry stays until it expires naturally
+  } catch (error) {
+    // Stale entry stays until it expires naturally.
+    captureException(error, { tags: { handler: 'memoize.refreshCache', namespace } })
   }
 }
 
-async function putCache<T>(
-  cache: Cache,
-  req: Request,
-  value: T,
-  maxAge: number,
-): Promise<void> {
+async function putCache<T>({ cache, req, value, maxAge, namespace }: {
+  cache: Cache
+  req: Request
+  value: T
+  maxAge: number
+  namespace: string
+}): Promise<void> {
   const envelope: CacheEnvelope<T> = { value, createdAt: Date.now() }
   const response = new Response(superjson.stringify(envelope), {
     headers: {
@@ -106,7 +114,9 @@ async function putCache<T>(
       'cache-control': `s-maxage=${maxAge}`,
     },
   })
-  await cache.put(req, response).catch(() => {})
+  await cache.put(req, response).catch((error) => {
+    captureException(error, { tags: { handler: 'memoize.putCache', namespace } })
+  })
 }
 
 export async function invalidate(namespace: string, ...args: unknown[]): Promise<boolean> {

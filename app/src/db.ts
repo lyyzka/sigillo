@@ -398,16 +398,28 @@ const lookupOrgMember = memoize({
   },
 })
 
+// Distinct class instead of `new Error('FORBIDDEN')` so the API/page wrappers
+// below can tell an authorization denial apart from an infrastructure failure.
+// A bare `catch {}` there used to turn D1 outages into a bogus 403/redirect,
+// hiding real errors from Strada and from the user.
+export class ForbiddenError extends Error {
+  constructor(message = 'FORBIDDEN') {
+    super(message)
+    this.name = 'ForbiddenError'
+  }
+}
+
 export async function requireOrgMember(userId: string, orgId: string) {
   const member = await lookupOrgMember(userId, orgId)
-  if (!member) throw new Error('FORBIDDEN')
+  if (!member) throw new ForbiddenError()
   return member
 }
 
 export async function requireApiOrgMember(userId: string, orgId: string) {
   try {
     return await requireOrgMember(userId, orgId)
-  } catch {
+  } catch (error) {
+    if (!(error instanceof ForbiddenError)) throw error
     throw new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: { 'content-type': 'application/json' } })
   }
 }
@@ -415,7 +427,8 @@ export async function requireApiOrgMember(userId: string, orgId: string) {
 export async function requirePageOrgMember(userId: string, orgId: string) {
   try {
     return await requireOrgMember(userId, orgId)
-  } catch {
+  } catch (error) {
+    if (!(error instanceof ForbiddenError)) throw error
     throw redirect('/')
   }
 }

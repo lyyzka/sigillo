@@ -16,6 +16,7 @@ import type { BatchItem } from 'drizzle-orm/batch'
 import { schema } from 'db'
 import { getActionRequest, redirect } from 'spiceflow'
 import { router } from 'spiceflow/react'
+import { captureException } from '@strada.sh/sdk'
 import {
   getDb, getSession,
   requireOrgMember,
@@ -274,7 +275,15 @@ export async function acceptInviteAction({ invitationId }: { invitationId: strin
         const [first, ...rest] = queries
         if (first) await db.batch([first, ...rest])
       }
-    } catch {}
+    } catch (error) {
+      // Membership already exists at this point, so don't fail the whole
+      // accept — the user is in the org, just without the scoped project
+      // rows. Report it instead of swallowing: silently dropping these leaves
+      // the invitee with an org they can see nothing in, and no signal why.
+      captureException(error, {
+        tags: { action: 'acceptInviteAction', step: 'project-scoping', invitationId },
+      })
+    }
   }
 
   throw redirect(router.href('/dash/orgs/:orgId', { orgId: invite.orgId }))
