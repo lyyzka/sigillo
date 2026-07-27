@@ -2,6 +2,10 @@
 // Runs inside workerd via @cloudflare/vitest-pool-workers.
 // applyD1Migrations() only applies migrations that haven't already been
 // applied, so it is safe to call repeatedly.
+//
+// Outbound HTTP is handled in vite.config.ts via miniflare's outboundService,
+// not here — see testOutboundService for why the OIDC discovery endpoint must
+// be answered locally.
 import { applyD1Migrations } from 'cloudflare:test'
 import { env } from 'cloudflare:workers'
 import { ulid } from 'ulid'
