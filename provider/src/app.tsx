@@ -13,6 +13,50 @@ import { ConsentButtons } from './components/consent-buttons.tsx'
 import { SigilloLogo } from 'sigillo-app/src/components/logo.tsx'
 
 
+// Renders OAuth/OIDC errors that BetterAuth redirects to the root in production.
+// BetterAuth's built-in /api/auth/error endpoint redirects to /?error=...&error_description=...
+// in production mode (no customizeDefaultErrorPage set), so the root route and /error
+// route both need to handle these query params and show a human-readable error page.
+function ErrorScreen({ error, errorDescription }: { error: string; errorDescription: string | null }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10 sm:px-6">
+      <section className="w-full max-w-sm">
+        <div className="flex flex-col gap-1.5">
+          <SigilloLogo className="h-[36px] w-auto" />
+          <h1 className="text-2xl font-semibold tracking-[-0.02em] text-foreground">
+            Something went wrong
+          </h1>
+        </div>
+
+        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950">
+          <p className="text-sm font-medium text-red-800 dark:text-red-200">
+            {error.replace(/_/g, ' ')}
+          </p>
+          {errorDescription && (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+              {errorDescription}
+            </p>
+          )}
+        </div>
+
+        <p className="mt-4 text-sm leading-6 text-muted-foreground">
+          Try signing in again. If this keeps happening, contact the administrator
+          of the app that redirected you here.
+        </p>
+
+        <div className="mt-6 flex gap-3">
+          <a
+            href="/"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
+          >
+            Go back
+          </a>
+        </div>
+      </section>
+    </main>
+  )
+}
+
 function ConsentScreen({
   redirectDomain,
   switchAccountUrl,
@@ -205,11 +249,32 @@ export const app = new Spiceflow()
     return Response.json(await auth.api.getOpenIdConfig({ headers: new Headers() }))
   })
 
+  // ── Error page ─────────────────────────────────────────────────
+  // BetterAuth's built-in /api/auth/error endpoint redirects to
+  // /?error=...&error_description=... in production (no customizeDefaultErrorPage).
+  // Catch those redirects and render a proper error page.
+  .page('/error', async ({ request }) => {
+    const url = new URL(request.url)
+    const error = url.searchParams.get('error')
+    const errorDescription = url.searchParams.get('error_description')
+    if (!error) return Response.redirect(new URL('/', url.origin).toString(), 302)
+    return <ErrorScreen error={error} errorDescription={errorDescription} />
+  })
+
   // ── Health check ──────────────────────────────────────────────
   .get('/health', () => {
     return { ok: true, service: 'sigillo-provider' }
   })
-  .get('/', () => {
+  .get('/', ({ request }) => {
+    const url = new URL(request.url)
+    const error = url.searchParams.get('error')
+    if (error) {
+      // BetterAuth's /api/auth/error redirects here in production.
+      // Forward to the /error page so the user sees a proper error message.
+      const errorUrl = new URL('/error', url.origin)
+      errorUrl.search = url.search
+      return Response.redirect(errorUrl.toString(), 302)
+    }
     return { ok: true, service: 'sigillo-provider' }
   })
 
