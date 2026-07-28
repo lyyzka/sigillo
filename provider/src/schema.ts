@@ -3,8 +3,25 @@
 // oauthProvider plugin tables (oauthClient, oauthConsent, oauthAccessToken,
 // oauthRefreshToken) and jwt plugin table (jwks).
 //
-// Field names and types match @better-auth/oauth-provider@1.6.3 exactly.
-// BetterAuth stores string[] as JSON-encoded text columns.
+// Field names and types match @better-auth/oauth-provider@1.7.0-beta.4 exactly.
+//
+// IMPORTANT: every field BetterAuth types as `string[]` or `json` MUST be
+// declared here as `text(name, { mode: 'json' })`, never a plain `text()`.
+// `better-auth-drizzle-adapter` hardcodes `supportsArrays: true`, so the
+// adapter passes raw JS arrays straight through to drizzle and expects
+// drizzle's json mode to serialize them. With a plain text column that
+// contract breaks in both directions and the failures look unrelated:
+//
+//   insert -> D1_TYPE_ERROR: Type 'object' not supported for value '...'
+//   select -> TypeError: registered.find is not a function
+//             (in findRegisteredRedirectUri, because redirectUris is a
+//              raw JSON string instead of an array -> /oauth2/authorize 500s
+//              and every login dies at the provider)
+//
+// The json-mode columns are the SAME on-disk representation (TEXT holding
+// JSON), so switching a column to `{ mode: 'json' }` needs no migration.
+//
+// Use jsonArray() below for `string[]` fields so the TS type stays string[].
 
 import { defineRelations } from 'drizzle-orm'
 import * as sqliteCore from 'drizzle-orm/sqlite-core'
@@ -22,6 +39,11 @@ const epochMs = sqliteCore.customType<{ data: number; driverParam: number }>({
   },
   fromDriver(value: unknown): number { return value as number },
 })
+
+// TEXT column holding a JSON-encoded string array. Drizzle handles the
+// JSON.parse/stringify, which is what better-auth-drizzle-adapter expects
+// for every field BetterAuth types as `string[]`.
+const jsonArray = (name: string) => sqliteCore.text(name, { mode: 'json' }).$type<string[]>()
 
 // ── BetterAuth core tables ──────────────────────────────────────────
 
@@ -86,18 +108,20 @@ export const oauthClient = sqliteCore.sqliteTable('oauth_client', {
   name: sqliteCore.text('name'),
   uri: sqliteCore.text('uri'),
   icon: sqliteCore.text('icon'),
-  contacts: sqliteCore.text('contacts'), // JSON string[]
+  contacts: jsonArray('contacts'),
   tos: sqliteCore.text('tos'),
   policy: sqliteCore.text('policy'),
   softwareId: sqliteCore.text('software_id'),
   softwareVersion: sqliteCore.text('software_version'),
   softwareStatement: sqliteCore.text('software_statement'),
-  redirectUris: sqliteCore.text('redirect_uris').notNull(), // JSON string[]
-  postLogoutRedirectUris: sqliteCore.text('post_logout_redirect_uris'), // JSON string[]
+  jwks: sqliteCore.text('jwks'),
+  jwksUri: sqliteCore.text('jwks_uri'),
+  redirectUris: jsonArray('redirect_uris').notNull(),
+  postLogoutRedirectUris: jsonArray('post_logout_redirect_uris'),
   tokenEndpointAuthMethod: sqliteCore.text('token_endpoint_auth_method'),
-  grantTypes: sqliteCore.text('grant_types'), // JSON string[]
-  responseTypes: sqliteCore.text('response_types'), // JSON string[]
-  scopes: sqliteCore.text('scopes'), // JSON string[]
+  grantTypes: jsonArray('grant_types'),
+  responseTypes: jsonArray('response_types'),
+  scopes: jsonArray('scopes'),
   type: sqliteCore.text('type'),
   public: sqliteCore.integer('public', { mode: 'boolean' }),
   disabled: sqliteCore.integer('disabled', { mode: 'boolean' }).default(false),
@@ -107,7 +131,7 @@ export const oauthClient = sqliteCore.sqliteTable('oauth_client', {
   requirePKCE: sqliteCore.integer('require_pkce', { mode: 'boolean' }),
   userId: sqliteCore.text('user_id').references(() => user.id, { onDelete: 'cascade' }),
   referenceId: sqliteCore.text('reference_id'),
-  metadata: sqliteCore.text('metadata'), // JSON
+  metadata: sqliteCore.text('metadata', { mode: 'json' }),
   createdAt: epochMs('created_at').$defaultFn(() => Date.now()),
   updatedAt: epochMs('updated_at').$defaultFn(() => Date.now()),
 })
@@ -117,7 +141,8 @@ export const oauthConsent = sqliteCore.sqliteTable('oauth_consent', {
   clientId: sqliteCore.text('client_id').notNull(),
   userId: sqliteCore.text('user_id').references(() => user.id, { onDelete: 'cascade' }),
   referenceId: sqliteCore.text('reference_id'),
-  scopes: sqliteCore.text('scopes').notNull(), // JSON string[]
+  scopes: jsonArray('scopes').notNull(),
+  resources: jsonArray('resources'),
   createdAt: epochMs('created_at').$defaultFn(() => Date.now()),
   updatedAt: epochMs('updated_at').$defaultFn(() => Date.now()),
 }, (table) => [
@@ -135,7 +160,8 @@ export const oauthRefreshToken = sqliteCore.sqliteTable('oauth_refresh_token', {
   createdAt: epochMs('created_at').$defaultFn(() => Date.now()),
   revoked: epochMs('revoked'),
   authTime: epochMs('auth_time'),
-  scopes: sqliteCore.text('scopes').notNull(), // JSON string[]
+  scopes: jsonArray('scopes').notNull(),
+  resources: jsonArray('resources'),
 }, (table) => [
   sqliteCore.index('oauth_refresh_token_user_id_idx').on(table.userId),
 ])
@@ -150,7 +176,8 @@ export const oauthAccessToken = sqliteCore.sqliteTable('oauth_access_token', {
   refreshId: sqliteCore.text('refresh_id').references(() => oauthRefreshToken.id),
   expiresAt: epochMs('expires_at').notNull(),
   createdAt: epochMs('created_at').$defaultFn(() => Date.now()),
-  scopes: sqliteCore.text('scopes').notNull(), // JSON string[]
+  scopes: jsonArray('scopes').notNull(),
+  resources: jsonArray('resources'),
 }, (table) => [
   sqliteCore.index('oauth_access_token_user_id_idx').on(table.userId),
 ])
@@ -162,6 +189,7 @@ export const jwks = sqliteCore.sqliteTable('jwks', {
   publicKey: sqliteCore.text('public_key').notNull(),
   privateKey: sqliteCore.text('private_key').notNull(),
   createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
+  expiresAt: epochMs('expires_at'),
 })
 
 // ── Relations (v2 API) ──────────────────────────────────────────────
