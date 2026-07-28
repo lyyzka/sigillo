@@ -137,6 +137,31 @@ Rules:
 
 The remaining `unmet peer drizzle-orm@^0.45.2: found 1.0.0-rc.1` warning from `pnpm install` is expected — the app intentionally runs drizzle 1.0 rc.
 
+## better-auth `string[]` columns MUST be drizzle json mode
+
+The provider uses `better-auth-drizzle-adapter` (a fork), not the stock `better-auth/adapters/drizzle`. The fork **hardcodes `supportsArrays: true`**, while the stock adapter uses `supportsArrays: provider === 'pg'`.
+
+better-auth's adapter factory only serializes array fields when `supportsArrays === false`:
+
+```ts
+transformInput:  supportsArrays === false && Array.isArray(v)     -> JSON.stringify(v)
+transformOutput: supportsArrays === false && typeof v === 'string' -> JSON.parse(v)
+```
+
+With the fork, the adapter hands raw JS arrays to drizzle and expects **drizzle's json mode** to serialize them. So every field better-auth types as `string[]` or `json` must be declared as `text(name, { mode: 'json' })`. A plain `text()` silently breaks both directions, and the two failures look unrelated:
+
+| direction | symptom |
+|---|---|
+| insert | `D1_TYPE_ERROR: Type 'object' not supported for value '...'` on `/oauth2/register` |
+| select | `TypeError: registered.find is not a function` in `findRegisteredRedirectUri` → `/oauth2/authorize` 500s and **every login dies at the provider** |
+
+Rules:
+
+- Use the `jsonArray()` helper in `provider/src/schema.ts` for `string[]` fields; it keeps the TS type as `string[]`.
+- The on-disk representation is identical either way (TEXT holding single-encoded JSON), so flipping a column to `{ mode: 'json' }` needs **no data migration**.
+- After bumping `better-auth` or `@better-auth/oauth-provider`, diff the drizzle schema against the plugin schema. `getAuthTables({ plugins: [...] })` from `better-auth/db` gives the authoritative field list; compare it with `getTableColumns()` to catch both missing columns and wrong column modes. 1.7 added `oauth_client.jwks`, `oauth_client.jwks_uri`, `resources` on the consent/token tables, and `jwks.expires_at`.
+- Typecheck and build both pass with the wrong mode. Only a real request against D1 catches it, so exercise `/oauth2/register` plus `/oauth2/authorize` locally after any schema or adapter change.
+
 ## packageExtensions for safe-mdx
 
 `safe-mdx` imports `react-dom` (`prefetchDNS`, `preconnect`) but only declares `react` as a peer dependency, so pnpm builds a react-only variant and Vite fails to load the config with `Cannot find package 'react-dom'`. The root `package.json` corrects the metadata locally:
