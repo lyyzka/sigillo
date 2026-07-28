@@ -115,6 +115,28 @@ function getRedirectDomain(redirectUri: string | null) {
   }
 }
 
+// Starts the Google sign-in redirect. Uses returnHeaders so we get both the
+// redirect URL and the Set-Cookie headers (state cookie for CSRF). A bare
+// Response.redirect() drops those cookies → state_mismatch on the callback.
+async function startGoogleSignIn(request: Request, callbackUrl: URL) {
+  const auth = getAuth()
+  const { headers: responseHeaders, response } = await auth.api.signInSocial({
+    body: { provider: 'google', callbackURL: callbackUrl.href },
+    headers: request.headers,
+    returnHeaders: true,
+  })
+  if (!response?.url) {
+    return new Response('Failed to initiate Google sign-in', { status: 500 })
+  }
+  const redirect = new Response(null, { status: 302, headers: { Location: response.url } })
+  // Forward all Set-Cookie headers from BetterAuth (state cookie for CSRF).
+  // getSetCookie() returns each cookie separately — append preserves multiples.
+  for (const cookie of responseHeaders.getSetCookie()) {
+    redirect.headers.append('Set-Cookie', cookie)
+  }
+  return redirect
+}
+
 export const app = new Spiceflow()
 
   // ── BetterAuth middleware ──────────────────────────────────────
@@ -175,24 +197,42 @@ export const app = new Spiceflow()
       return Response.redirect(authorizeUrl.toString(), 302)
     }
 
-    // Use returnHeaders so we get both the redirect URL and the Set-Cookie
-    // headers (state cookie for CSRF). A bare Response.redirect() drops
-    // those cookies → state_mismatch on the Google callback.
-    const { headers: responseHeaders, response } = await auth.api.signInSocial({
-      body: { provider: 'google', callbackURL: currentUrl.href },
-      headers: request.headers,
-      returnHeaders: true,
-    })
-    if (!response?.url) {
-      return new Response('Failed to initiate Google sign-in', { status: 500 })
+    return startGoogleSignIn(request, currentUrl)
+  })
+
+  // ── Account selection (prompt=select_account) ──────────────────
+  // oauthProvider redirects here when a client sends prompt=select_account,
+  // because selectAccount.page points at this route. Two steps:
+  //
+  //   1. no ?selected  → restart Google sign-in so the account picker shows.
+  //      The Google callback comes back here with ?selected=1.
+  //   2. ?selected=1   → call /oauth2/continue with selected: true. That
+  //      strips prompt=select_account from the stored authorize query and
+  //      resumes the flow. Redirecting straight back to /oauth2/authorize
+  //      instead would hit prompt=select_account again and loop forever.
+  //
+  // The signed authorize params ride along in the query string and are
+  // handed back to BetterAuth as oauth_query; only `selected` is stripped,
+  // so the signature still verifies.
+  .get('/select-account', async ({ request }) => {
+    const url = new URL(request.url)
+    const oauthQuery = new URLSearchParams(url.search)
+    const selected = oauthQuery.get('selected') === '1'
+    oauthQuery.delete('selected')
+
+    if (selected) {
+      const auth = getAuth()
+      const result = await auth.api.oauth2Continue({
+        body: { selected: true, oauth_query: oauthQuery.toString() },
+        headers: request.headers,
+      })
+      return Response.redirect(result.url, 302)
     }
-    const redirect = new Response(null, { status: 302, headers: { Location: response.url } })
-    // Forward all Set-Cookie headers from BetterAuth (state cookie for CSRF).
-    // getSetCookie() returns each cookie separately — append preserves multiples.
-    for (const cookie of responseHeaders.getSetCookie()) {
-      redirect.headers.append('Set-Cookie', cookie)
-    }
-    return redirect
+
+    const callbackUrl = new URL('/select-account', url.origin)
+    callbackUrl.search = oauthQuery.toString()
+    callbackUrl.searchParams.set('selected', '1')
+    return startGoogleSignIn(request, callbackUrl)
   })
 
   .page('/consent', async ({ request }) => {
