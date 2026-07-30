@@ -410,19 +410,29 @@ Most commands that resolve auth, project, or environment from config accept thes
 Upload secrets to a Cloudflare Worker using `wrangler secret bulk`:
 
 ```bash
-sigillo run -c production --mount .env.prod --mount-format env -- wrangler secret bulk .env.prod
+sigillo secrets download -c production --format env |
+  wrangler secret bulk --env=""
 ```
+
+The pipe sends the complete Sigillo environment directly to Wrangler. Secret
+values never appear in the terminal and no `.env` file remains on disk. Use an
+explicit empty environment for the top-level production Worker; Wrangler warns
+when a configuration has named environments but the target is ambiguous.
 
 Add these as `package.json` scripts so you can sync before each deploy:
 
 ```json
 {
   "scripts": {
-    "secrets:preview": "sigillo run -c preview --mount .env.preview --mount-format env -- wrangler secret bulk --env preview .env.preview",
-    "secrets:production": "sigillo run -c production --mount .env.prod --mount-format env -- wrangler secret bulk .env.prod"
+    "secrets:preview": "sigillo secrets download -c preview --format env | wrangler secret bulk --env preview",
+    "secrets:production": "sigillo secrets download -c production --format env | wrangler secret bulk --env=\"\""
   }
 }
 ```
+
+This intentionally syncs the entire selected environment. Keep `dev`,
+`preview`, and `production` values separate in Sigillo, then use the matching
+Wrangler environment at deployment time.
 
 ### Vercel
 

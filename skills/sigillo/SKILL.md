@@ -250,6 +250,12 @@ After setup, `sigillo run` in any subdirectory uses that project + environment a
 
 Avoid `sigillo secrets download` unless a specific tool requires a file. Prefer injecting directly via `sigillo run --` so values never touch the filesystem.
 
+`wrangler secret bulk` is a valid exception because it accepts stdin. For
+Cloudflare Workers, sync the complete environment directly through a pipe and
+do not create `.env.preview` or `.env.prod` files. Read the **Cloudflare
+Workers** section of the root README for the canonical package scripts and
+explicit production/preview target flags.
+
 ## Placeholder secrets (user fills in later)
 
 When the user asks to add a secret but will provide the actual value later via the dashboard, set it with an empty value:
