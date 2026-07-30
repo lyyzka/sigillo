@@ -137,29 +137,38 @@ Rules:
 
 The remaining `unmet peer drizzle-orm@^0.45.2: found 1.0.0-rc.1` warning from `pnpm install` is expected — the app intentionally runs drizzle 1.0 rc.
 
-## better-auth `string[]` columns MUST be drizzle json mode
+## better-auth `string[]` and `json` columns MUST be drizzle json mode
 
-The provider uses `better-auth-drizzle-adapter` (a fork), not the stock `better-auth/adapters/drizzle`. The fork **hardcodes `supportsArrays: true`**, while the stock adapter uses `supportsArrays: provider === 'pg'`.
-
-better-auth's adapter factory only serializes array fields when `supportsArrays === false`:
+The provider uses `better-auth-drizzle-adapter` (a fork of better-auth#9489), not the stock `better-auth/adapters/drizzle`. Since `1.2.0` its adapter config is byte-identical to upstream's **relations-v2** entrypoint:
 
 ```ts
-transformInput:  supportsArrays === false && Array.isArray(v)     -> JSON.stringify(v)
-transformOutput: supportsArrays === false && typeof v === 'string' -> JSON.parse(v)
+supportsJSON: true,
+supportsArrays: true,
 ```
 
-With the fork, the adapter hands raw JS arrays to drizzle and expects **drizzle's json mode** to serialize them. So every field better-auth types as `string[]` or `json` must be declared as `text(name, { mode: 'json' })`. A plain `text()` silently breaks both directions, and the two failures look unrelated:
+Both flags being `true` means **drizzle owns JSON serialization**, not better-auth. The factory only encodes when a flag is `false`:
+
+```ts
+transformInput:  supportsJSON   === false && typeof v === 'object' && type === 'json'      -> JSON.stringify(v)
+transformInput:  supportsArrays === false && Array.isArray(v)                              -> JSON.stringify(v)
+transformOutput: supportsJSON   === false && typeof v === 'string' && type === 'json'      -> JSON.parse(v)
+transformOutput: supportsArrays === false && typeof v === 'string'                         -> JSON.parse(v)
+```
+
+So every field better-auth types as `string[]`, `number[]` or `json` must be declared as `text(name, { mode: 'json' })`. A plain `text()` silently breaks both directions, and the two failures look unrelated:
 
 | direction | symptom |
 |---|---|
 | insert | `D1_TYPE_ERROR: Type 'object' not supported for value '...'` on `/oauth2/register` |
 | select | `TypeError: registered.find is not a function` in `findRegisteredRedirectUri` → `/oauth2/authorize` 500s and **every login dies at the provider** |
 
+Beware the **stock** adapter (`@better-auth/drizzle-adapter`, the default export) sets both flags to `provider === 'pg'`, which is the opposite contract: it wants plain `text()` columns. Pointing this schema at it would double-encode every one of these fields. That mismatch is a live upstream bug (better-auth#8655, #8107, #7440 — all open, its own CLI generator emits json-mode columns), so do not "fix" the fork by switching to the stock adapter.
+
 Rules:
 
 - Use the `jsonArray()` helper in `provider/src/schema.ts` for `string[]` fields; it keeps the TS type as `string[]`.
-- The on-disk representation is identical either way (TEXT holding single-encoded JSON), so flipping a column to `{ mode: 'json' }` needs **no data migration**.
-- After bumping `better-auth` or `@better-auth/oauth-provider`, diff the drizzle schema against the plugin schema. `getAuthTables({ plugins: [...] })` from `better-auth/db` gives the authoritative field list; compare it with `getTableColumns()` to catch both missing columns and wrong column modes. 1.7 added `oauth_client.jwks`, `oauth_client.jwks_uri`, `resources` on the consent/token tables, and `jwks.expires_at`.
+- `string[]` columns have the same on-disk bytes either way (TEXT holding single-encoded JSON), so flipping one to `{ mode: 'json' }` needs **no data migration**. `json` columns do not: before adapter `1.2.0` they were double-encoded as `"{\"a\":1}"`, and pre-1.2.0 rows now decode to a **string** instead of an object. `oauthClient.metadata` is the only `json` column here and is always NULL, because the oauth-provider plugin only fills it from unrecognized registration fields and `ensureOAuthClient` sends just the standard RFC 7591 keys.
+- After bumping `better-auth` or `@better-auth/oauth-provider`, diff the drizzle schema against the plugin schema. `getAuthTables({ plugins: [...] })` from `better-auth/db` gives the authoritative field list; compare it with `getTableColumns()` to catch both missing columns and wrong column modes. Any column whose drizzle `dataType` is not `object json` while better-auth types it `string[]`/`number[]`/`json` is a bug. 1.7 added `oauth_client.jwks`, `oauth_client.jwks_uri`, `resources` on the consent/token tables, and `jwks.expires_at`.
 - Typecheck and build both pass with the wrong mode. Only a real request against D1 catches it, so exercise `/oauth2/register` plus `/oauth2/authorize` locally after any schema or adapter change.
 
 ## packageExtensions for safe-mdx
