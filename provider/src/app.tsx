@@ -6,6 +6,7 @@
 
 import './globals.css'
 
+import { env } from 'cloudflare:workers'
 import { Spiceflow } from 'spiceflow'
 import { Head } from 'spiceflow/react'
 import { getAuth } from './db.ts'
@@ -115,6 +116,20 @@ function getRedirectDomain(redirectUri: string | null) {
   }
 }
 
+// The one app we own, derived from our own auth origin by dropping the `auth.`
+// label. Production auth.sigillo.dev → sigillo.dev, preview
+// auth.preview.sigillo.dev → preview.sigillo.dev.
+//
+// LESSON — this used to be the literal string 'sigillo.dev'. That made the
+// first-party auto-accept branch in /consent unreachable on preview, so a bug
+// living in that branch could only ever be discovered in production, which is
+// exactly what happened. Deriving the host keeps preview on the same code path
+// and makes "deploy preview, verify, then prod" actually mean something.
+function getFirstPartyAppHost() {
+  const authHost = new URL(env.BETTER_AUTH_URL).hostname
+  return authHost.startsWith('auth.') ? authHost.slice('auth.'.length) : authHost
+}
+
 // Starts the Google sign-in redirect. Uses returnHeaders so we get both the
 // redirect URL and the Set-Cookie headers (state cookie for CSRF). A bare
 // Response.redirect() drops those cookies → state_mismatch on the callback.
@@ -214,6 +229,9 @@ export const app = new Spiceflow()
   // The signed authorize params ride along in the query string and are
   // handed back to BetterAuth as oauth_query; only `selected` is stripped,
   // so the signature still verifies.
+  //
+  // LESSON — `request` and `asResponse: false` are BOTH mandatory here.
+  // See the comment on the /consent route below for the full explanation.
   .get('/select-account', async ({ request }) => {
     const url = new URL(request.url)
     const oauthQuery = new URLSearchParams(url.search)
@@ -225,6 +243,8 @@ export const app = new Spiceflow()
       const result = await auth.api.oauth2Continue({
         body: { selected: true, oauth_query: oauthQuery.toString() },
         headers: request.headers,
+        request,
+        asResponse: false,
       })
       return Response.redirect(result.url, 302)
     }
@@ -235,11 +255,43 @@ export const app = new Spiceflow()
     return startGoogleSignIn(request, callbackUrl)
   })
 
+  // LESSON — every direct `auth.api.oauth2*` call that resumes the authorize
+  // flow needs THREE fields, and omitting either of the last two fails in a
+  // way that typechecks, builds, and passes review:
+  //
+  //   headers        → session/cookie lookup. `sessionMiddleware` →
+  //                    `getSessionFromCtx` reads `ctx.headers`, never
+  //                    `ctx.request`, so this stays required.
+  //   request        → `oauth2Consent` and `oauth2Continue` both end by
+  //                    calling the plugin's internal `authorizeEndpoint`,
+  //                    which opens with `if (!ctx.request) throw APIError(
+  //                    'UNAUTHORIZED', { error_description: 'request not
+  //                    found' })`. better-call only sets `ctx.request` from
+  //                    an explicit `request` option; it never derives it from
+  //                    `headers`. Over HTTP the router fills it in, which is
+  //                    why upstream docs only ever show the browser
+  //                    `authClient.oauth2.consent()` path and never hit this.
+  //                    Auto-accepting consent server-side for first-party
+  //                    clients (what we do below) is off that happy path.
+  //   asResponse     → `toAuthEndpoints` does
+  //                    `shouldReturnResponse = context?.asResponse ?? isRequestLike(context?.request)`.
+  //                    So adding `request` alone silently flips the return
+  //                    value from `{ redirect, url }` to a `Response`, and
+  //                    `result.url` becomes an empty string — a redirect to
+  //                    nowhere. TypeScript does NOT catch this: the
+  //                    better-call overloads pick the return type from the
+  //                    literal presence of `asResponse`, so the declared type
+  //                    stays `{ redirect: true; url: string }` either way.
+  //
+  // Symptom when `request` is missing: the consent page renders a raw JSON
+  // APIError blob and login is completely dead. It only reproduces against a
+  // real OAuth round trip, so always re-test login end to end after touching
+  // this file.
   .page('/consent', async ({ request }) => {
     const url = new URL(request.url)
     const redirectDomain = getRedirectDomain(url.searchParams.get('redirect_uri'))
 
-    if (redirectDomain === 'sigillo.dev') {
+    if (redirectDomain === getFirstPartyAppHost()) {
       const auth = getAuth()
       const result = await auth.api.oauth2Consent({
         body: {
@@ -247,6 +299,8 @@ export const app = new Spiceflow()
           oauth_query: url.search.slice(1),
         },
         headers: request.headers,
+        request,
+        asResponse: false,
       })
 
       return Response.redirect(result.url, 302)

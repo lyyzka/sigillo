@@ -171,6 +171,40 @@ Rules:
 - After bumping `better-auth` or `@better-auth/oauth-provider`, diff the drizzle schema against the plugin schema. `getAuthTables({ plugins: [...] })` from `better-auth/db` gives the authoritative field list; compare it with `getTableColumns()` to catch both missing columns and wrong column modes. Any column whose drizzle `dataType` is not `object json` while better-auth types it `string[]`/`number[]`/`json` is a bug. 1.7 added `oauth_client.jwks`, `oauth_client.jwks_uri`, `resources` on the consent/token tables, and `jwks.expires_at`.
 - Typecheck and build both pass with the wrong mode. Only a real request against D1 catches it, so exercise `/oauth2/register` plus `/oauth2/authorize` locally after any schema or adapter change.
 
+## Direct `auth.api.oauth2*` calls need `request` AND `asResponse: false`
+
+The provider auto-accepts consent server-side for our own app instead of rendering a consent screen, so `/consent` and `/select-account` call `auth.api.oauth2Consent` / `auth.api.oauth2Continue` directly rather than going through the browser `authClient`. Both endpoints finish by calling the plugin's internal `authorizeEndpoint`, which opens with:
+
+```js
+if (!ctx.request) throw new APIError('UNAUTHORIZED', {
+  error_description: 'request not found', error: 'invalid_request',
+})
+```
+
+better-call sets `ctx.request` **only** from an explicit `request` option (`better-call/dist/context.mjs`); it never derives it from `headers`. Over HTTP the router fills it in, which is why every upstream example (`authClient.oauth2.consent()`) works and this one did not. The correct call is:
+
+```ts
+const result = await auth.api.oauth2Consent({
+  body: { accept: true, oauth_query: url.search.slice(1) },
+  headers: request.headers, // session lookup reads ctx.headers, not ctx.request
+  request,                  // satisfies authorizeEndpoint's !ctx.request guard
+  asResponse: false,        // see below — not optional
+})
+```
+
+| Field | Why it is required |
+|---|---|
+| `headers` | `sessionMiddleware` → `getSessionFromCtx` reads `ctx.headers`. Drop it and there is no session. |
+| `request` | `authorizeEndpoint`'s guard. Drop it and login dies with a raw JSON `APIError` blob on the consent page. |
+| `asResponse: false` | `toAuthEndpoints` does `shouldReturnResponse = context?.asResponse ?? isRequestLike(context?.request)`. Adding `request` alone flips the return value from `{ redirect, url }` to a `Response`, so `result.url` becomes `""` and you redirect to nowhere. |
+
+Rules:
+
+- Never add `request` to a direct `auth.api.*` call without also passing `asResponse: false`, unless you actually want the `Response`.
+- **TypeScript does not catch either mistake.** better-call's `StrictEndpoint` overloads pick the return type from the literal presence of `asResponse`, so the declared type stays `{ redirect: true; url: string }` either way. Typecheck, build, lint, and the app test suite all passed with the broken call.
+- The only thing that catches this is a real OAuth round trip. After touching `provider/src/app.tsx`, log in end to end against preview with cleared cookies.
+- The first-party check in `/consent` derives its host from `env.BETTER_AUTH_URL` (`auth.sigillo.dev` → `sigillo.dev`, `auth.preview.sigillo.dev` → `preview.sigillo.dev`). It used to be the hardcoded literal `'sigillo.dev'`, which made the auto-accept branch **unreachable on preview** — the bug above could only ever surface in production. Keep it derived so preview exercises the same path.
+
 ## packageExtensions for safe-mdx
 
 `safe-mdx` imports `react-dom` (`prefetchDNS`, `preconnect`) but only declares `react` as a peer dependency, so pnpm builds a react-only variant and Vite fails to load the config with `Cannot find package 'react-dom'`. The root `package.json` corrects the metadata locally:
