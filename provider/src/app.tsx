@@ -9,7 +9,7 @@ import './globals.css'
 import { env } from 'cloudflare:workers'
 import { Spiceflow } from 'spiceflow'
 import { Head } from 'spiceflow/react'
-import { getAuth } from './db.ts'
+import { getAuth, getDb } from './db.ts'
 import { ConsentButtons } from './components/consent-buttons.tsx'
 import { SigilloLogo } from 'sigillo-app/src/components/logo.tsx'
 
@@ -107,6 +107,22 @@ function ConsentScreen({
   )
 }
 
+// Drops one value from the space-separated OIDC `prompt` parameter, removing
+// the parameter entirely when nothing is left.
+//
+// Safe to mutate even though these params arrive signed (`sig` + `exp`): the
+// signature is only verified when the query is replayed through the plugin as
+// `oauth_query` on /oauth2/consent or /oauth2/continue. A plain GET to
+// /oauth2/authorize is treated as a fresh authorization request and never
+// checks it.
+function removePrompt(params: URLSearchParams, value: string) {
+  const prompt = params.get('prompt')
+  if (!prompt) return
+  const remaining = prompt.split(' ').filter((entry) => entry && entry !== value)
+  if (remaining.length) params.set('prompt', remaining.join(' '))
+  else params.delete('prompt')
+}
+
 function getRedirectDomain(redirectUri: string | null) {
   if (!redirectUri) return null
   try {
@@ -128,6 +144,44 @@ function getRedirectDomain(redirectUri: string | null) {
 function getFirstPartyAppHost() {
   const authHost = new URL(env.BETTER_AUTH_URL).hostname
   return authHost.startsWith('auth.') ? authHost.slice('auth.'.length) : authHost
+}
+
+// Resolves where /sign-out sends the browser once the provider session is
+// gone. The caller proposes a URL, but it is only honoured when it shares an
+// origin with one of the calling client's registered redirect_uris — otherwise
+// /sign-out would be an open redirect on the domain that holds everyone's
+// login session. Self-hosted instances each register their own client, so a
+// client can only ever bounce back to itself.
+async function resolvePostLogoutRedirect(args: {
+  clientId: string | null
+  requested: string | null
+  origin: string
+}) {
+  const fallback = new URL('/', args.origin).toString()
+  if (!args.clientId || !args.requested) return fallback
+
+  let requestedUrl: URL
+  try {
+    requestedUrl = new URL(args.requested)
+  } catch {
+    return fallback
+  }
+
+  const db = getDb()
+  const client = await db.query.oauthClient.findFirst({
+    where: { clientId: args.clientId },
+    columns: { redirectUris: true },
+  })
+  if (!client) return fallback
+
+  const allowed = client.redirectUris.some((uri) => {
+    try {
+      return new URL(uri).origin === requestedUrl.origin
+    } catch {
+      return false
+    }
+  })
+  return allowed ? requestedUrl.toString() : fallback
 }
 
 // Starts the Google sign-in redirect. Uses returnHeaders so we get both the
@@ -200,6 +254,15 @@ export const app = new Spiceflow()
   // the social provider. The param is stripped from the callback URL so the
   // post-Google redirect takes the normal session shortcut instead of
   // looping back to Google.
+  //
+  // LESSON — the resumed authorize query must also drop select_account.
+  // Landing here at all means the user just went through Google's account
+  // picker, so the prompt is already satisfied. Leaving it in made authorize
+  // see `session + prompt=select_account`, bounce to /select-account, and send
+  // the user to Google's picker a SECOND time before finally completing. Not
+  // an infinite loop, just two identical account pickers back to back, which
+  // reads like a bug. Stripping it is exactly what the plugin's own
+  // /oauth2/continue does once an account has been selected.
   .get('/sign-in', async ({ request }) => {
     const currentUrl = new URL(request.url)
     const switchAccount = currentUrl.searchParams.get('switch') === '1'
@@ -209,10 +272,57 @@ export const app = new Spiceflow()
     if (session && !switchAccount) {
       const authorizeUrl = new URL('/api/auth/oauth2/authorize', currentUrl.origin)
       authorizeUrl.search = currentUrl.search
+      removePrompt(authorizeUrl.searchParams, 'select_account')
       return Response.redirect(authorizeUrl.toString(), 302)
     }
 
     return startGoogleSignIn(request, currentUrl)
+  })
+
+  // ── Federated sign-out ─────────────────────────────────────────
+  // Apps redirect here as the last step of their own sign-out so the provider
+  // session dies too.
+  //
+  // LESSON — without this route "log out" was a lie. Clearing only the app
+  // cookie left the auth.sigillo.dev session alive, so the very next click on
+  // "Sign in with Google" went authorize → /consent (auto-accepted for
+  // first-party) → back into the app as the same user, without ever reaching
+  // Google. There was no way to switch Google accounts, and on a shared
+  // machine the next person inherited the previous session.
+  //
+  // This is deliberately NOT the plugin's RFC-compliant /oauth2/end-session:
+  // that one requires an `id_token_hint`, a client with `enable_end_session`,
+  // and pre-registered `post_logout_redirect_uris`. Our clients are registered
+  // dynamically at first boot and genericOAuth does not retain the id_token,
+  // so every existing client would have to be re-registered. The redirect
+  // target is validated against the client's registered redirect_uris instead,
+  // which gives the same open-redirect protection with none of that setup.
+  .get('/sign-out', async ({ request }) => {
+    const url = new URL(request.url)
+    const target = await resolvePostLogoutRedirect({
+      clientId: url.searchParams.get('client_id'),
+      requested: url.searchParams.get('post_logout_redirect_uri'),
+      origin: url.origin,
+    })
+
+    const auth = getAuth()
+    const redirect = new Response(null, { status: 302, headers: { Location: target } })
+
+    // signOut throws BAD_REQUEST when there is no session cookie, so only call
+    // it when there is something to clear. Landing here already signed out is
+    // normal (double click, stale tab) and must still redirect.
+    const session = await auth.api.getSession({ headers: request.headers })
+    if (session) {
+      const { headers: responseHeaders } = await auth.api.signOut({
+        headers: request.headers,
+        returnHeaders: true,
+      })
+      for (const cookie of responseHeaders.getSetCookie()) {
+        redirect.headers.append('Set-Cookie', cookie)
+      }
+    }
+
+    return redirect
   })
 
   // ── Account selection (prompt=select_account) ──────────────────

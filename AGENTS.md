@@ -205,6 +205,43 @@ Rules:
 - The only thing that catches this is a real OAuth round trip. After touching `provider/src/app.tsx`, log in end to end against preview with cleared cookies.
 - The first-party check in `/consent` derives its host from `env.BETTER_AUTH_URL` (`auth.sigillo.dev` → `sigillo.dev`, `auth.preview.sigillo.dev` → `preview.sigillo.dev`). It used to be the hardcoded literal `'sigillo.dev'`, which made the auto-accept branch **unreachable on preview** — the bug above could only ever surface in production. Keep it derived so preview exercises the same path.
 
+## Sign-out is federated, and login always asks which Google account
+
+Two sessions exist per user: one on the app (`sigillo.dev`) and one on the provider (`auth.sigillo.dev`). Clearing only the app one made "Log out" a lie — the next click on **Sign in with Google** went `authorize → /consent` (auto-accepted for first-party) → back into the app as the same user, without ever reaching Google. Switching Google accounts was impossible, and on a shared machine the next person inherited the session.
+
+The flow now spans both workers:
+
+```
+┌──────────────────────────┐                      ┌────────────────────────────┐
+│  sigillo.dev             │                      │  auth.sigillo.dev          │
+│                          │   302 client_id +    │                            │
+│  GET /logout             ├─────────────────────>│  GET /sign-out             │
+│  ├ clears app session    │   post_logout_redir  │  ├ validates redirect uri  │
+│  └ 302 to provider       │<─────────────────────┤  └ clears provider session │
+│                          │   302 back to /login │                            │
+└──────────────────────────┘                      └────────────────────────────┘
+```
+
+Rules:
+
+- **Log out must be a full navigation to `/logout`, never `authClient.signOut()` in the browser.** The second half is a cross-origin redirect the browser has to follow so the provider can send its own expired `Set-Cookie`. A client-side `signOut()` can only reach the app's own origin.
+- **`post_logout_redirect_uri` is validated against the calling client's registered `redirect_uris` (same origin).** `/sign-out` lives on the domain holding everyone's SSO session, so an unvalidated redirect there is a phishing primitive. `client_id` is required for that lookup; without it, or on any mismatch, it falls back to the provider root.
+- This deliberately does **not** use the plugin's RFC-compliant `/oauth2/end-session`. That needs an `id_token_hint`, a client with `enable_end_session`, and pre-registered `post_logout_redirect_uris`. Clients here register dynamically at first boot and `genericOAuth` does not retain the id_token, so every existing client would need re-registration for no extra safety.
+- `auth.api.signOut` throws `BAD_REQUEST` when no session cookie is present, so both routes check for a session first. Landing on `/logout` while already signed out is normal and must still redirect.
+
+The app also sets `prompt: 'select_account'` on its `genericOAuth` config, so pressing **Sign in with Google** always shows Google's account picker even when the provider session survived (expired app cookie, cleared app storage). The provider maps that onto `selectAccount.page` → `/select-account`.
+
+**`/sign-in` must strip `select_account` from the authorize query it resumes.** Reaching `/sign-in` at all means the user just came back through Google's picker, so the prompt is already satisfied. Leaving it in made authorize see `session + prompt=select_account`, bounce to `/select-account`, and send the user to the picker a **second time** before completing. Not an infinite loop, just two identical pickers back to back. `removePrompt()` in `provider/src/app.tsx` does this; it is safe despite the query being signed (`sig` + `exp`), because the signature is only verified when the query is replayed as `oauth_query` on `/oauth2/consent` or `/oauth2/continue` — a plain GET to `/oauth2/authorize` is treated as a fresh request and never checks it.
+
+There are two distinct login paths and **both need a real browser round trip to verify**; nothing in typecheck, build, or the test suite exercises them:
+
+| provider session | path | expected |
+|---|---|---|
+| absent | `authorize → /sign-in → Google → /sign-in → authorize → app callback` | one picker |
+| alive | `authorize → /select-account → Google → /select-account?selected=1 → /oauth2/continue → app callback` | one picker |
+
+`/select-account` had never run in production before this change (`shouldRedirect` returns false and no client sent the prompt), so treat it as the fragile path when touching this code.
+
 ## packageExtensions for safe-mdx
 
 `safe-mdx` imports `react-dom` (`prefetchDNS`, `preconnect`) but only declares `react` as a peer dependency, so pnpm builds a react-only variant and Vite fails to load the config with `Cannot find package 'react-dom'`. The root `package.json` corrects the metadata locally:

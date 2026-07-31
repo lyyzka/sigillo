@@ -47,7 +47,6 @@ import {
   DropdownMenuLabel,
 } from "sigillo-app/src/components/ui/dropdown-menu";
 import { createProjectAction } from "../actions.ts";
-import { authClient } from "../auth-client.ts";
 
 // ── Shared sidebar content ─────────────────────────────────────
 // Used by both the desktop aside and the mobile drawer so the org
@@ -217,10 +216,16 @@ function SidebarContent({
               </div>
             </div>
             <DropdownMenuSeparator />
+            {/*
+              Full navigation to the server route, not authClient.signOut().
+              /logout clears the local session and then redirects to the
+              provider's /sign-out so the SSO session dies too — a client-side
+              signOut only kills the local cookie, leaving the provider able to
+              log you straight back in as the same Google account.
+            */}
             <DropdownMenuItem
-              onClick={async () => {
-                await authClient.signOut();
-                window.location.href = router.href("/login");
+              onClick={() => {
+                window.location.href = "/logout";
               }}
             >
               <LogOutIcon className="size-4 text-muted-foreground" />
