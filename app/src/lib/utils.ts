@@ -5,13 +5,39 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatTime(ts: number) {
-  const now = Date.now()
+// ── Time formatting ─────────────────────────────────────────────────
+//
+// LESSON — both of these take `now` and `timeZone` as REQUIRED arguments on
+// purpose. They used to read `Date.now()` and the ambient timezone directly,
+// which made every caller a React hydration bug:
+//
+//   timezone  the worker renders in UTC, the browser renders in the user's
+//             zone. For a user at UTC+2, any timestamp between 22:00 and
+//             00:00 UTC formats as a DIFFERENT CALENDAR DAY on each side.
+//             That was 22 of the 40 most recent rows in production — so it
+//             was not only a hydration mismatch (React error #418), it also
+//             showed the wrong date to the user.
+//   Date.now  the server's clock at SSR is not the client's clock at
+//             hydration, so a relative bucket can flip between the two.
+//
+// Never add defaults here. Making the caller pass both is what forces the
+// server and the client to agree; see `<TimeAgo>` for the render-time gate.
+
+export function formatAbsoluteDate({ ts, timeZone }: { ts: number; timeZone: string }) {
+  return new Date(ts).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone,
+  })
+}
+
+export function formatTime({ ts, now, timeZone }: { ts: number; now: number; timeZone: string }) {
   const diff = now - ts
   if (diff < 60_000) return 'just now'
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return formatAbsoluteDate({ ts, timeZone })
 }
 
 // ── Email domain helpers (client-safe) ──────────────────────────────

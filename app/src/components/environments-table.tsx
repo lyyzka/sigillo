@@ -20,7 +20,7 @@ import { cn } from "sigillo-app/src/lib/utils";
 import { Button } from "sigillo-app/src/components/ui/button";
 import { Frame } from "sigillo-app/src/components/ui/frame";
 import { Input } from "sigillo-app/src/components/ui/input";
-import { formatTime } from "sigillo-app/src/lib/utils";
+import { TimeAgo } from "sigillo-app/src/components/ui/time-ago";
 import { createEnvAction, deleteEnvAction, renameEnvAction, updateEnvironmentAccessRoleAction } from "../actions.ts";
 import { NativeSelect } from "sigillo-app/src/components/ui/native-select";
 import {
@@ -201,9 +201,10 @@ export function EnvironmentsTable() {
       header: "Last Updated",
       size: 130,
       cell: ({ row }) => (
-        <span className="text-muted-foreground text-xs tabular-nums">
-          {formatTime(row.original.updatedAt)}
-        </span>
+        <TimeAgo
+          ts={row.original.updatedAt}
+          className="text-muted-foreground text-xs tabular-nums"
+        />
       ),
     },
     {
@@ -211,9 +212,10 @@ export function EnvironmentsTable() {
       header: "Created",
       size: 130,
       cell: ({ row }) => (
-        <span className="text-muted-foreground text-xs tabular-nums">
-          {formatTime(row.original.createdAt)}
-        </span>
+        <TimeAgo
+          ts={row.original.createdAt}
+          className="text-muted-foreground text-xs tabular-nums"
+        />
       ),
     },
     {

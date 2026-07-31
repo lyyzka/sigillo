@@ -35,7 +35,7 @@ import {
   TableRow,
 } from "sigillo-app/src/components/ui/table";
 import { parseEnv } from "sigillo-app/src/lib/parse-env";
-import { formatTime } from "sigillo-app/src/lib/utils";
+import { TimeAgo } from "sigillo-app/src/components/ui/time-ago";
 import {
   deleteSecretAction,
   saveSecretsAction,
@@ -319,9 +319,10 @@ export function SecretsTable({
                     />
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
-                    <span className="text-muted-foreground text-xs tabular-nums">
-                      {formatTime(secret.updatedAt)}
-                    </span>
+                    <TimeAgo
+                      ts={secret.updatedAt}
+                      className="text-muted-foreground text-xs tabular-nums"
+                    />
                   </TableCell>
                   <TableCell className="p-0">
                     <button

@@ -26,7 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "sigillo-app/src/components/ui/table";
-import { formatTime } from "sigillo-app/src/lib/utils";
+import { TimeAgo } from "sigillo-app/src/components/ui/time-ago";
 
 // Secret values use the .text-security-disc CSS class from globals.css.
 
@@ -144,9 +144,10 @@ export function EventLogTable() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <span className="text-muted-foreground text-xs tabular-nums">
-                        {formatTime(evt.createdAt)}
-                      </span>
+                      <TimeAgo
+                        ts={evt.createdAt}
+                        className="text-muted-foreground text-xs tabular-nums"
+                      />
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground truncate">{evt.userName}</span>

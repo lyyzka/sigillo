@@ -22,7 +22,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "sigillo-app/src/components/ui/table"
-import { formatTime } from "sigillo-app/src/lib/utils"
+import { TimeAgo } from "sigillo-app/src/components/ui/time-ago"
 import { createTokenAction, deleteTokenAction } from "../actions.ts"
 
 
@@ -103,9 +103,10 @@ function TokensTable() {
                 </span>
               </TableCell>
               <TableCell>
-                <span className="text-muted-foreground text-xs tabular-nums">
-                  {formatTime(token.createdAt)}
-                </span>
+                <TimeAgo
+                  ts={token.createdAt}
+                  className="text-muted-foreground text-xs tabular-nums"
+                />
               </TableCell>
               <TableCell className="p-0">
                 <button

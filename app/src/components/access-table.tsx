@@ -16,7 +16,7 @@ import { useLoaderData } from "spiceflow/react"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "sigillo-app/src/components/ui/table"
-import { formatTime } from "sigillo-app/src/lib/utils"
+import { TimeAgo } from "sigillo-app/src/components/ui/time-ago"
 
 type Member = {
   id: string
@@ -181,9 +181,10 @@ export function AccessTable() {
                     </button>
                   </TableCell>
                   <TableCell>
-                    <span className="text-muted-foreground text-xs tabular-nums whitespace-nowrap">
-                      {formatTime(member.createdAt)}
-                    </span>
+                    <TimeAgo
+                      ts={member.createdAt}
+                      className="text-muted-foreground text-xs tabular-nums whitespace-nowrap"
+                    />
                   </TableCell>
                   {canManage ? (
                     <TableCell className="p-0">

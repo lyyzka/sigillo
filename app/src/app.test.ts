@@ -17,6 +17,7 @@ import * as orm from 'drizzle-orm'
 import { app } from './app.js'
 import { getAuth, encrypt, decrypt, deriveSecrets, deriveEnvironmentSecretsAndNames, generateApiToken, getDb, autoJoinOrgsByDomain, getMemberProjectAccess, getAccessibleProjectIds } from './db.js'
 import { schema } from 'db'
+import { formatAbsoluteDate, formatTime } from './lib/utils.js'
 
 // ── Test helpers ────────────────────────────────────────────────────
 
@@ -1221,5 +1222,52 @@ describe('environment access roles', () => {
       { headers: { authorization: `Bearer ${memberToken}` } },
     ))
     expect(res.status).toBe(403)
+  })
+})
+
+// ── Time formatting ─────────────────────────────────────────────────
+//
+// These guard the hydration bug class described in lib/utils.ts: the worker
+// renders in UTC and the browser renders in the visitor's zone, so any
+// formatter that reads the ambient timezone or Date.now() produces different
+// text on each side. React reports that as error #418 and shows the user a
+// date that is not theirs.
+
+describe('formatTime', () => {
+  // 2026-07-29T23:16Z — a real production timestamp that rendered as
+  // "Jul 29" on the worker and "Jul 30" in a UTC+2 browser.
+  const nearMidnightUtc = Date.UTC(2026, 6, 29, 23, 16)
+
+  test('same timestamp formats to a different day per timezone', () => {
+    expect(formatAbsoluteDate({ ts: nearMidnightUtc, timeZone: 'UTC' })).toMatchInlineSnapshot(`"Jul 29, 2026"`)
+    expect(formatAbsoluteDate({ ts: nearMidnightUtc, timeZone: 'Europe/Rome' })).toMatchInlineSnapshot(`"Jul 30, 2026"`)
+  })
+
+  test('output depends only on its arguments, never on ambient state', () => {
+    // Called twice, seconds apart in wall-clock terms, with the same inputs.
+    const now = Date.UTC(2026, 6, 31, 12, 0)
+    const first = formatTime({ ts: nearMidnightUtc, now, timeZone: 'UTC' })
+    const second = formatTime({ ts: nearMidnightUtc, now, timeZone: 'UTC' })
+    expect(first).toBe(second)
+    expect(first).toMatchInlineSnapshot(`"Jul 29, 2026"`)
+  })
+
+  test('relative buckets', () => {
+    const now = Date.UTC(2026, 6, 31, 12, 0)
+    expect(formatTime({ ts: now - 30_000, now, timeZone: 'UTC' })).toMatchInlineSnapshot(`"just now"`)
+    expect(formatTime({ ts: now - 5 * 60_000, now, timeZone: 'UTC' })).toMatchInlineSnapshot(`"5m ago"`)
+    expect(formatTime({ ts: now - 3 * 3_600_000, now, timeZone: 'UTC' })).toMatchInlineSnapshot(`"3h ago"`)
+    expect(formatTime({ ts: now - 3 * 86_400_000, now, timeZone: 'UTC' })).toMatchInlineSnapshot(`"Jul 28, 2026"`)
+  })
+
+  test('a bucket boundary crossing between SSR and hydration changes the text', () => {
+    // This is precisely why <TimeAgo> renders the absolute UTC date on the
+    // first pass instead of a relative bucket: the server and the hydrating
+    // client do not share a clock.
+    const ssr = Date.UTC(2026, 6, 31, 12, 0, 0)
+    const hydration = ssr + 400 // ~400ms later, crossing the minute boundary
+    const ts = ssr - 119_600
+    expect(formatTime({ ts, now: ssr, timeZone: 'UTC' })).toMatchInlineSnapshot(`"1m ago"`)
+    expect(formatTime({ ts, now: hydration, timeZone: 'UTC' })).toMatchInlineSnapshot(`"2m ago"`)
   })
 })
