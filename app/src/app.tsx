@@ -24,6 +24,7 @@ import {
   getAccessibleProjectIds,
 } from './db.ts'
 import { apiApp } from './api.ts'
+import { rememberCacheOrigin } from './lib/memoize.ts'
 import { cn } from 'sigillo-app/src/lib/utils'
 import { CreateOrgForm } from 'sigillo-app/src/components/create-org-form'
 import { SigilloLogo } from 'sigillo-app/src/components/logo'
@@ -897,6 +898,10 @@ export type App = typeof app
 
 export default {
   fetch: (request: Request) => {
+    // Cache API keys must live on this Worker's own origin, and that origin is
+    // only knowable from a real request (preview, production, and every
+    // self-hosted instance run on different domains). No-op after the first call.
+    rememberCacheOrigin(request.url)
     // Safe to call on every request — no-op after the first call.
     // Gated so self-hosted instances (no STRADA_PROJECT_ID binding) send nothing.
     if (env.STRADA_PROJECT_ID) {

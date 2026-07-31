@@ -19,12 +19,45 @@ import { waitUntil } from 'cloudflare:workers'
 import { getDeploymentId } from 'spiceflow'
 import { captureException } from '@strada.sh/sdk'
 
-// LESSON: never use an IP-literal host for cache keys. The Cache API
-// silently DROPS keys like https://0.0.0.0/... — cache.put() resolves
-// without error but stores nothing, and match() always misses, so every
-// memoized call is a permanent cache miss. Cache keys never trigger DNS,
-// so any syntactic hostname is safe.
-const CACHE_BASE = 'https://memoize-cache.internal.example.com/'
+// Cache keys are full URLs and the hostname is part of the key. Cloudflare
+// associates each entry with the zone the key's hostname belongs to:
+//
+//   "The asset will be cached under the hostname specified within the Worker's
+//    subrequest — not the Worker's own hostname."
+//   https://developers.cloudflare.com/workers/reference/how-the-cache-works/
+//
+// So Cloudflare's own Cache API example builds the key from the incoming
+// request URL, keeping it inside the zone the Worker serves:
+// https://developers.cloudflare.com/workers/examples/cache-api/
+//
+// We do the same. app.tsx calls rememberCacheOrigin() on every request and
+// keys hang off that origin, which also separates preview from production and
+// gives each self-hosted instance its own keyspace for free.
+//
+// This used to be a hardcoded `https://0.0.0.0/`, on the theory that a
+// non-routable IP avoided DNS lookups. Cache keys never resolve DNS, and an IP
+// literal belongs to no zone, so that was undocumented territory. Note that
+// cache.put() "resolves to undefined regardless of whether the cache
+// successfully stored the response", so a bad key produces a 100% miss rate
+// with no error anywhere — do not guess at hostnames here.
+//
+// The `/__memoize/` path prefix matters because caches.default is the same
+// cache fetch() uses, so keys share a namespace with real URLs on this origin.
+// If that ever feels too close for comfort, the documented alternative is a
+// separate namespace via caches.open(), which is isolated from the fetch cache.
+const FALLBACK_CACHE_ORIGIN = 'https://memoize.sigillo.dev'
+
+let cacheOrigin: string | undefined
+
+/**
+ * Records the origin this Worker is being served from, so cache keys stay
+ * inside its own zone. Idempotent and safe to call per request: the value is
+ * constant for a given deployment + custom domain.
+ */
+export function rememberCacheOrigin(requestUrl: string): void {
+  if (cacheOrigin) return
+  cacheOrigin = new URL(requestUrl).origin
+}
 
 interface CacheEnvelope<T> {
   value: T
@@ -131,7 +164,8 @@ export async function invalidate(namespace: string, ...args: unknown[]): Promise
 
 async function buildCacheKey(namespace: string, args: unknown[]): Promise<string> {
   const id = await getDeploymentId()
-  const prefix = id ? `${CACHE_BASE}${id}/` : CACHE_BASE
+  const origin = cacheOrigin ?? FALLBACK_CACHE_ORIGIN
+  const prefix = id ? `${origin}/__memoize/${id}/` : `${origin}/__memoize/`
   const serialized = superjson.stringify(args)
   const hash = await sha256(serialized)
   return `${prefix}${namespace}/${hash}`
