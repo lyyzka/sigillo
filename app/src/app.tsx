@@ -207,7 +207,7 @@ export const app = new Spiceflow({ tracer })
             <div className="border-t border-border" />
           </>
         )}
-        <div className="isolate grow relative flex max-w-(--content-max-width) mx-auto w-full border-x border-border">
+        <div className="isolate min-h-0 grow relative flex max-w-(--content-max-width) mx-auto w-full border-x border-border">
           <GridDot position="tl" />
           <GridDot position="tr" />
           <Sidebar />
@@ -632,7 +632,7 @@ export const app = new Spiceflow({ tracer })
     if (session) return redirect(redirectTo)
     const { LoginButton } = await import('sigillo-app/src/components/login-button')
     return (
-      <ContentFrame className="flex justify-center items-center min-h-[60vh]">
+      <ContentFrame className="flex grow justify-center items-center">
         <div className="text-center max-w-sm">
           <SigilloLogo className="h-[40px] w-auto mx-auto mb-2" />
           <p className="text-muted-foreground mb-6">Sign in to manage your secrets</p>
@@ -651,7 +651,7 @@ export const app = new Spiceflow({ tracer })
     })
     if (!invite || invite.expiresAt < Date.now()) {
       return (
-        <ContentFrame className="flex justify-center items-center min-h-[60vh]">
+        <ContentFrame className="flex grow justify-center items-center">
           <div className="text-center max-w-sm">
             <h1 className="text-2xl font-bold tracking-tight mb-2">Invalid Invitation</h1>
             <p className="text-muted-foreground">This invitation link is invalid or has expired.</p>
@@ -671,7 +671,7 @@ export const app = new Spiceflow({ tracer })
     if (existing) return redirect(`/dash/orgs/${encodeURIComponent(invite.orgId)}`)
     const { AcceptInviteButton } = await import('sigillo-app/src/components/accept-invite-button')
     return (
-      <ContentFrame className="flex justify-center items-center min-h-[60vh]">
+      <ContentFrame className="flex grow justify-center items-center">
         <div className="text-center max-w-sm space-y-4">
           <h1 className="text-2xl font-bold tracking-tight">Join {invite.org!.name}</h1>
           <p className="text-muted-foreground text-sm">
@@ -706,26 +706,28 @@ function getInitialThemeClass(request: Request) {
 
 function AppShell({ children, mobileMenuSlot, request }: { children: React.ReactNode; mobileMenuSlot?: React.ReactNode; request: Request }) {
   return (
-    <html lang="en" className={getInitialThemeClass(request)} data-default-theme="system" suppressHydrationWarning>
+    <html lang="en" className={cn("h-dvh", getInitialThemeClass(request))} data-default-theme="system" suppressHydrationWarning>
       <Head>
         <Head.Meta charSet="UTF-8" />
         <Head.Meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <Head.Title>Sigillo — Secret Manager</Head.Title>
         <Head.Link rel="icon" type="image/png" href="/favicon.png" />
       </Head>
-      <body className="relative flex flex-col min-h-screen bg-background font-sans antialiased">
+      <body className="relative flex h-dvh flex-col bg-background font-sans antialiased">
         <StradaShellBrowser />
         <script dangerouslySetInnerHTML={{ __html: appThemeScript }} />
         <ProgressBar color="var(--primary)" />
         <Navbar mobileMenuSlot={mobileMenuSlot} />
-        <div className="border-t border-border" />
-        {children ?? (
-          <div className="relative max-w-(--content-max-width) mx-auto w-full border-x border-border flex items-center justify-center text-muted-foreground py-12">
-            <GridDot position="tl" />
-            <GridDot position="tr" />
-            Page not found
-          </div>
-        )}
+        <div className="shrink-0 border-t border-border" />
+        <div className="flex min-h-0 grow flex-col">
+          {children ?? (
+            <div className="relative flex min-h-0 grow items-center justify-center max-w-(--content-max-width) mx-auto w-full border-x border-border text-muted-foreground py-12">
+              <GridDot position="tl" />
+              <GridDot position="tr" />
+              Page not found
+            </div>
+          )}
+        </div>
         <Footer />
       </body>
     </html>
@@ -823,7 +825,7 @@ function GridDot({ position }: { position: keyof typeof gridDotPosition }) {
 
 function ContentFrame({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn("max-w-(--content-max-width) mx-auto w-full border-x border-border", className)}>
+    <div className={cn("min-h-0 grow max-w-(--content-max-width) mx-auto w-full border-x border-border", className)}>
       {children}
     </div>
   )
@@ -831,7 +833,7 @@ function ContentFrame({ children, className }: { children: React.ReactNode; clas
 
 function Navbar({ mobileMenuSlot }: { mobileMenuSlot?: React.ReactNode }) {
   return (
-    <nav className="sticky top-0 z-50 w-full bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <nav className="sticky top-0 z-50 w-full shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="relative max-w-(--content-max-width) mx-auto border-x border-border">
         <GridDot position="bl" />
         <GridDot position="br" />
@@ -880,7 +882,7 @@ function XIcon({ className }: { className?: string }) {
 async function Footer() {
   const { FooterColo, ThemeSelect } = await import('sigillo-app/src/components/sidebar')
   return (
-    <footer className="flex flex-col ">
+    <footer className="flex shrink-0 flex-col">
       <div className="border-t border-border" />
       <div className="relative max-w-(--content-max-width) grow mx-auto w-full border-x border-border">
         <GridDot position="tl" />
