@@ -493,3 +493,15 @@ gh run watch --exit-status
 
 Report the result to the user. Do not consider the release done until CI
 is green and the publish step has completed.
+
+**After npm publish succeeds, ALWAYS deploy the website.** The app worker
+hosts the public docs at sigillo.dev. CLI docs, install script, and OpenAPI
+are generated at app build time, so a published CLI with a stale site is a
+broken release. Follow the normal preview-then-production sequence. Do not
+skip this even if the version bump was CLI-only.
+
+```bash
+pnpm --dir app deployment
+# verify preview
+pnpm --dir app deployment:prod
+```
