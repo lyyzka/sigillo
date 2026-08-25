@@ -450,6 +450,14 @@ if needed download source code from https://github.com/better-auth/better-auth t
 
 read docs at https://better-auth.com/llms.txt. that page is only an index, you must fetch related pages to read their content
 
+## Changesets
+
+Always add a `.changeset/*.md` file for user-facing changes. Load the `changesets` skill for format.
+
+Include **`sigillo-app`** (the website at sigillo.dev) even though it is private. Private packages still get a CHANGELOG. Do not skip them.
+
+Include **`sigillo`** when the CLI changes. If both the website and the CLI changed, list both in the same changeset frontmatter.
+
 ## Publishing
 
 **NEVER run `npm publish`, `pnpm publish`, or any publish command locally.**
@@ -459,7 +467,7 @@ those platforms. Only CI can produce a correct release.
 
 To release:
 
-1. Add a `.changeset/*.md` file describing the changes (load `changesets` skill for format)
+1. Add a `.changeset/*.md` file describing the changes. Include `sigillo-app` for website changes, not only the CLI
 2. Commit and push to `main`
 4. GitHub Actions CI (`cli-ci.yml`) builds all artifacts and publishes
 5. CI auto-creates the GitHub release at tag `sigillo@x.y.z` and uploads

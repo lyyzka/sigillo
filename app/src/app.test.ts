@@ -535,6 +535,225 @@ describe('api tokens', () => {
     })
     assertErrorStatus(result, 401)
   })
+
+  test('project-scoped token can get its project (setup path)', async () => {
+    const db = getDb()
+    const user = await createTestUser({ name: 'SetupTokenUser' })
+    const { key, hashedKey, prefix } = await generateApiToken()
+    await db.insert(schema.apiToken).values({
+      name: 'setup-token',
+      projectId,
+      prefix,
+      hashedKey,
+      createdBy: user.user.id,
+    })
+
+    const result = assertOk(await authedFetch(key)('/api/v0/projects/:id', {
+      params: { id: projectId },
+    }))
+    expect(result.id).toBe(projectId)
+    expect(result.environments.map((e) => e.slug).sort()).toEqual(['dev', 'preview', 'prod'])
+  })
+
+  test('project-scoped token can list only its project', async () => {
+    const db = getDb()
+    const user = await createTestUser({ name: 'ListTokenUser' })
+    const { key, hashedKey, prefix } = await generateApiToken()
+    await db.insert(schema.apiToken).values({
+      name: 'list-token',
+      projectId,
+      prefix,
+      hashedKey,
+      createdBy: user.user.id,
+    })
+
+    const result = assertOk(await authedFetch(key)('/api/v0/projects'))
+    expect(result.projects.map((p) => p.id)).toEqual([projectId])
+  })
+
+  test('project-scoped token can list its environments', async () => {
+    const db = getDb()
+    const user = await createTestUser({ name: 'EnvListTokenUser' })
+    const { key, hashedKey, prefix } = await generateApiToken()
+    await db.insert(schema.apiToken).values({
+      name: 'env-list-token',
+      projectId,
+      prefix,
+      hashedKey,
+      createdBy: user.user.id,
+    })
+
+    const result = assertOk(await authedFetch(key)('/api/v0/projects/:pid/environments', {
+      params: { pid: projectId },
+    }))
+    expect(result.environments.map((e) => e.slug).sort()).toEqual(['dev', 'preview', 'prod'])
+  })
+
+  test('token cannot get a different project', async () => {
+    const db = getDb()
+    const user = await createTestUser({ name: 'CrossProjectTokenUser' })
+    const af = authedFetch(user.token)
+    const otherOrg = assertOk(await af('/api/v0/orgs', { method: 'POST', body: { name: 'Other Org' } }))
+    const otherProj = assertOk(await af('/api/v0/projects', { method: 'POST', body: { name: 'Other Project', orgId: otherOrg.id } }))
+
+    const { key, hashedKey, prefix } = await generateApiToken()
+    await db.insert(schema.apiToken).values({
+      name: 'scoped-token',
+      projectId,
+      prefix,
+      hashedKey,
+      createdBy: user.user.id,
+    })
+
+    const result = await authedFetch(key)('/api/v0/projects/:id', {
+      params: { id: otherProj.id },
+    })
+    assertErrorStatus(result, 403)
+  })
+
+  test('env-scoped token only sees that environment on the project', async () => {
+    const db = getDb()
+    const user = await createTestUser({ name: 'EnvScopedSetupUser' })
+    const { key, hashedKey, prefix } = await generateApiToken()
+    await db.insert(schema.apiToken).values({
+      name: 'dev-setup',
+      projectId,
+      environmentId: devEnvId,
+      prefix,
+      hashedKey,
+      createdBy: user.user.id,
+    })
+
+    const project = assertOk(await authedFetch(key)('/api/v0/projects/:id', {
+      params: { id: projectId },
+    }))
+    expect(project.environments.map((e) => e.slug)).toEqual(['dev'])
+
+    const envs = assertOk(await authedFetch(key)('/api/v0/projects/:pid/environments', {
+      params: { pid: projectId },
+    }))
+    expect(envs.environments.map((e) => e.slug)).toEqual(['dev'])
+  })
+
+  test('token cannot mutate a project', async () => {
+    const db = getDb()
+    const user = await createTestUser({ name: 'MutateTokenUser' })
+    const { key, hashedKey, prefix } = await generateApiToken()
+    await db.insert(schema.apiToken).values({
+      name: 'read-only',
+      projectId,
+      prefix,
+      hashedKey,
+      createdBy: user.user.id,
+    })
+
+    const patched = await authedFetch(key)('/api/v0/projects/:id', {
+      method: 'PATCH',
+      params: { id: projectId },
+      body: { name: 'Hacked' },
+    })
+    assertErrorStatus(patched, 401)
+  })
+
+  test('invalid token on project get returns 401', async () => {
+    const result = await authedFetch('sig_invalid_token_that_does_not_exist')('/api/v0/projects/:id', {
+      params: { id: projectId },
+    })
+    assertErrorStatus(result, 401)
+  })
+
+  test('deleting a scoped environment revokes the token', async () => {
+    const user = await createTestUser({ name: 'CascadeTokenUser' })
+    const af = authedFetch(user.token)
+    const org = assertOk(await af('/api/v0/orgs', { method: 'POST', body: { name: 'Cascade Org' } }))
+    const proj = assertOk(await af('/api/v0/projects', { method: 'POST', body: { name: 'Cascade Project', orgId: org.id } }))
+    const envs = assertOk(await af('/api/v0/projects/:pid/environments', { params: { pid: proj.id } }))
+    const dev = envs.environments.find((e) => e.slug === 'dev')!
+    const prod = envs.environments.find((e) => e.slug === 'prod')!
+
+    assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', {
+      method: 'POST',
+      params: { pid: proj.id, eid: prod.id },
+      body: { name: 'PROD_SECRET', value: 'prod-value' },
+    }))
+
+    const { key, hashedKey, prefix } = await generateApiToken()
+    await getDb().insert(schema.apiToken).values({
+      name: 'dev-only',
+      projectId: proj.id,
+      environmentId: dev.id,
+      prefix,
+      hashedKey,
+      createdBy: user.user.id,
+    })
+
+    assertOk(await af('/api/v0/projects/:pid/environments/:id', {
+      method: 'DELETE',
+      params: { pid: proj.id, id: dev.id },
+    }))
+
+    const result = await authedFetch(key)('/api/v0/projects/:pid/environments/:eid/secrets/:name', {
+      params: { pid: proj.id, eid: prod.id, name: 'PROD_SECRET' },
+    })
+    assertErrorStatus(result, 401)
+  })
+
+  test('project-scoped token can call me and list its org', async () => {
+    const user = await createTestUser({ name: 'MeTokenUser' })
+    const { key, hashedKey, prefix } = await generateApiToken()
+    await getDb().insert(schema.apiToken).values({
+      name: 'me-token',
+      projectId,
+      prefix,
+      hashedKey,
+      createdBy: user.user.id,
+    })
+
+    const tf = authedFetch(key)
+    const me = assertOk(await tf('/api/v0/me'))
+    expect(me.user.id).toBe(user.user.id)
+    expect(me.user.name).toBe('MeTokenUser')
+    expect(me.orgs).toHaveLength(1)
+
+    const orgs = assertOk(await tf('/api/v0/orgs'))
+    expect(orgs.orgs.map((org) => org.id)).toEqual([me.orgs[0]!.id])
+  })
+
+  test('project-scoped token can get an environment', async () => {
+    const user = await createTestUser({ name: 'EnvGetTokenUser' })
+    const { key, hashedKey, prefix } = await generateApiToken()
+    await getDb().insert(schema.apiToken).values({
+      name: 'env-get-token',
+      projectId,
+      prefix,
+      hashedKey,
+      createdBy: user.user.id,
+    })
+
+    const result = assertOk(await authedFetch(key)('/api/v0/projects/:pid/environments/:id', {
+      params: { pid: projectId, id: devEnvId },
+    }))
+    expect(result.id).toBe(devEnvId)
+    expect(result.slug).toBe('dev')
+  })
+
+  test('env-scoped token cannot get a different environment', async () => {
+    const user = await createTestUser({ name: 'EnvGetScopedUser' })
+    const { key, hashedKey, prefix } = await generateApiToken()
+    await getDb().insert(schema.apiToken).values({
+      name: 'dev-get',
+      projectId,
+      environmentId: devEnvId,
+      prefix,
+      hashedKey,
+      createdBy: user.user.id,
+    })
+
+    const result = await authedFetch(key)('/api/v0/projects/:pid/environments/:id', {
+      params: { pid: projectId, id: prodEnvId },
+    })
+    assertErrorStatus(result, 403)
+  })
 })
 
 // ── Security — cross-user isolation ─────────────────────────────────

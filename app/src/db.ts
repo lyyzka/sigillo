@@ -657,31 +657,14 @@ export async function requireSecretsApiAuth(
     projectId?: string | null
   },
 ): Promise<SecretsAuth & { environmentId: string }> {
-  const authHeader = request.headers.get('authorization')
-  const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
-
-  // API tokens use the "sig_" prefix — check those first.
-  // Non-prefixed bearer tokens fall through to session auth (BetterAuth bearer plugin).
-  if (bearer?.startsWith('sig_')) {
-    const hashedKey = await hashTokenKey(bearer)
-    const db = getDb()
-    const token = await db.query.apiToken.findFirst({
-      where: { hashedKey },
-      columns: { id: true, projectId: true, environmentId: true },
-    })
-    if (!token) throw unauthorizedResponse()
-
-    // Resolve the environment ref (ID or slug) using the token's project scope
-    const env = await resolveEnvironment(environmentRef, token.projectId)
-    if (!env || env.projectId !== token.projectId) throw forbiddenResponse('token does not have access to this environment')
-
-    // If token is scoped to a specific environment, enforce it
-    if (token.environmentId && token.environmentId !== env.id) {
+  const apiToken = await getRequestApiToken(request)
+  if (apiToken) {
+    const env = await resolveEnvironment(environmentRef, apiToken.projectId)
+    if (!env || env.projectId !== apiToken.projectId) throw forbiddenResponse('token does not have access to this environment')
+    if (apiToken.environmentId && apiToken.environmentId !== env.id) {
       throw forbiddenResponse('token is scoped to a different environment')
     }
-
-    // API tokens bypass env access role checks; they have their own scoping.
-    return { userId: null, apiTokenId: token.id, environmentId: env.id }
+    return { userId: null, apiTokenId: apiToken.tokenId, environmentId: env.id }
   }
 
   // Session auth path — works with both cookies and BetterAuth bearer tokens
@@ -738,6 +721,22 @@ export async function verifyApiToken(key: string): Promise<{
   })
   if (!token) return null
   return { tokenId: token.id, projectId: token.projectId, environmentId: token.environmentId }
+}
+
+// Reads a sig_ bearer token from the request. Returns null when the request
+// is not token auth (cookie session or BetterAuth bearer). Invalid sig_
+// tokens throw 401 so they never fall through to session auth.
+export async function getRequestApiToken(request: Request): Promise<{
+  tokenId: string
+  projectId: string
+  environmentId: string | null
+} | null> {
+  const authHeader = request.headers.get('authorization')
+  const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
+  if (!bearer?.startsWith('sig_')) return null
+  const token = await verifyApiToken(bearer)
+  if (!token) throw unauthorizedResponse()
+  return token
 }
 
 // ── Encryption (AES-256-GCM) ────────────────────────────────────────

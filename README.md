@@ -767,28 +767,28 @@ Secrets are stored as an **append-only event log**. Current values are derived b
 <details>
 <summary><b>REST API</b></summary>
 
-The app exposes a full REST API with OpenAPI documentation at `/api/openapi.json`.
+The app exposes a full REST API with OpenAPI documentation at `/api/v0/openapi.json`.
 
 ```bash
 # list secrets
 curl -H "Authorization: Bearer sig_xxx" \
-  https://sigillo.dev/api/environments/{envId}/secrets
+  https://sigillo.dev/api/v0/projects/{projectId}/environments/{environmentId}/secrets
 
 # set a secret
 curl -X POST -H "Authorization: Bearer sig_xxx" \
   -H "Content-Type: application/json" \
   -d '{"name": "API_KEY", "value": "sk-live-xxx"}' \
-  https://sigillo.dev/api/environments/{envId}/secrets
+  https://sigillo.dev/api/v0/projects/{projectId}/environments/{environmentId}/secrets
 
 # bulk download as JSON
 curl -H "Authorization: Bearer sig_xxx" \
-  https://sigillo.dev/api/environments/{envId}/secrets/download?format=json
+  https://sigillo.dev/api/v0/projects/{projectId}/environments/{environmentId}/secrets/download?format=json
 
 # bulk set
 curl -X PUT -H "Authorization: Bearer sig_xxx" \
   -H "Content-Type: application/json" \
   -d '{"secrets": {"KEY1": "val1", "KEY2": "val2"}}' \
-  https://sigillo.dev/api/environments/{envId}/secrets
+  https://sigillo.dev/api/v0/projects/{projectId}/environments/{environmentId}/secrets
 ```
 
 </details>

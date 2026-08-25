@@ -1,6 +1,8 @@
 // REST API for external consumers (CLI, SDKs, agents).
 // Mounted as a sub-app in app.tsx via .use(apiApp).
-// All routes require session auth via requireApiSession.
+// Session routes use requireApiSession. Secrets routes also accept sig_
+// tokens via requireSecretsApiAuth. Read routes for me, orgs, projects,
+// and environments accept those tokens so CLI setup and inspection work.
 //
 // Doppler API reference for comparison:
 // https://docs.doppler.com/reference
@@ -18,6 +20,7 @@ import {
   requireApiSession,
   requireApiOrgMember,
   requireSecretsApiAuth,
+  getRequestApiToken,
   getOrgIdForProject,
   getOrgIdForEnvironment,
   getProjectIdForEnvironment,
@@ -139,6 +142,42 @@ const projectListItemSchema = projectSummarySchema.extend({
   orgName: z.string(),
   environments: z.array(environmentSummarySchema),
 })
+
+type ProjectWithOrgAndEnvs = {
+  id: string
+  orgId: string
+  name: string
+  createdAt: number
+  updatedAt: number
+  org?: { name: string } | null
+  environments: Array<z.infer<typeof environmentSummarySchema>>
+}
+
+function toEnvironmentSummary(environment: z.infer<typeof environmentSummarySchema>) {
+  return {
+    id: environment.id,
+    projectId: environment.projectId,
+    name: environment.name,
+    slug: environment.slug,
+    createdAt: environment.createdAt,
+    updatedAt: environment.updatedAt,
+  }
+}
+
+function toProjectPayload(project: ProjectWithOrgAndEnvs, environmentId?: string | null): z.infer<typeof projectListItemSchema> {
+  const environments = environmentId
+    ? project.environments.filter((environment) => environment.id === environmentId)
+    : project.environments
+  return {
+    id: project.id,
+    orgId: project.orgId,
+    orgName: project.org?.name ?? '',
+    name: project.name,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+    environments: environments.map(toEnvironmentSummary),
+  }
+}
 
 const projectListResponseSchema = z.object({
   projects: z.array(projectListItemSchema),
@@ -368,6 +407,25 @@ export const apiApp = new Spiceflow()
     detail: { tags: ['Organizations'], summary: 'List organizations' },
     response: orgListResponseSchema,
     async handler({ request }) {
+      const apiToken = await getRequestApiToken(request)
+      if (apiToken) {
+        const db = getDb()
+        const project = await db.query.project.findFirst({
+          where: { id: apiToken.projectId },
+          with: { org: true },
+        })
+        if (!project?.org) return { orgs: [] }
+        return {
+          orgs: [{
+            id: project.org.id,
+            name: project.org.name,
+            role: 'member' as const,
+            createdAt: project.org.createdAt,
+            updatedAt: project.org.updatedAt,
+          }],
+        }
+      }
+
       const session = await requireApiSession(request)
       const db = getDb()
       const members = await db.query.orgMember.findMany({
@@ -413,6 +471,17 @@ export const apiApp = new Spiceflow()
     query: z.object({ orgId: z.string().min(1).optional() }),
     response: projectListResponseSchema,
     async handler({ request, query }) {
+      const apiToken = await getRequestApiToken(request)
+      if (apiToken) {
+        const db = getDb()
+        const project = await db.query.project.findFirst({
+          where: { id: apiToken.projectId },
+          with: { org: true, environments: true },
+        })
+        if (!project || (query.orgId && project.orgId !== query.orgId)) return { projects: [] }
+        return { projects: [toProjectPayload(project, apiToken.environmentId)] }
+      }
+
       const session = await requireApiSession(request)
       const db = getDb()
 
@@ -442,22 +511,7 @@ export const apiApp = new Spiceflow()
         for (const project of org.projects) {
           // If member has scoped access, skip projects not in their list
           if (accessibleIds !== null && !accessibleIds.includes(project.id)) continue
-          projects.push({
-            id: project.id,
-            orgId: project.orgId,
-            orgName: org.name,
-            name: project.name,
-            createdAt: project.createdAt,
-            updatedAt: project.updatedAt,
-            environments: project.environments.map((environment) => ({
-              id: environment.id,
-              projectId: environment.projectId,
-              name: environment.name,
-              slug: environment.slug,
-              createdAt: environment.createdAt,
-              updatedAt: environment.updatedAt,
-            })),
-          })
+          projects.push(toProjectPayload({ ...project, org }))
         }
       }
       return { projects }
@@ -470,6 +524,18 @@ export const apiApp = new Spiceflow()
     detail: { tags: ['Projects'], summary: 'Get project' },
     response: { 200: projectListItemSchema, 403: errorResponseSchema, 404: errorResponseSchema },
     async handler({ params, request }) {
+      const apiToken = await getRequestApiToken(request)
+      if (apiToken) {
+        if (apiToken.projectId !== params.id) return json({ error: 'forbidden' }, { status: 403 })
+        const db = getDb()
+        const project = await db.query.project.findFirst({
+          where: { id: params.id },
+          with: { org: true, environments: true },
+        })
+        if (!project) return json({ error: 'not found' }, { status: 404 })
+        return toProjectPayload(project, apiToken.environmentId)
+      }
+
       const session = await requireApiSession(request)
       const orgId = await getOrgIdForProject(params.id)
       if (!orgId) return json({ error: 'not found' }, { status: 404 })
@@ -482,22 +548,7 @@ export const apiApp = new Spiceflow()
         with: { org: true, environments: true },
       })
       if (!project) return json({ error: 'not found' }, { status: 404 })
-      return {
-        id: project.id,
-        orgId: project.orgId,
-        orgName: project.org?.name ?? '',
-        name: project.name,
-        createdAt: project.createdAt,
-        updatedAt: project.updatedAt,
-        environments: project.environments.map((environment) => ({
-          id: environment.id,
-          projectId: environment.projectId,
-          name: environment.name,
-          slug: environment.slug,
-          createdAt: environment.createdAt,
-          updatedAt: environment.updatedAt,
-        })),
-      }
+      return toProjectPayload(project)
     },
   })
 
@@ -549,21 +600,27 @@ export const apiApp = new Spiceflow()
     method: 'GET',
     path: '/api/v0/projects/:projectId/environments',
     detail: { tags: ['Environments'], summary: 'List environments' },
-    response: { 200: environmentListResponseSchema, 404: errorResponseSchema },
+    response: { 200: environmentListResponseSchema, 403: errorResponseSchema, 404: errorResponseSchema },
     async handler({ params, request }) {
+      const apiToken = await getRequestApiToken(request)
+      if (apiToken) {
+        if (apiToken.projectId !== params.projectId) return json({ error: 'forbidden' }, { status: 403 })
+        const db = getDb()
+        const environments = (await db.query.environment.findMany({
+          where: apiToken.environmentId
+            ? { projectId: params.projectId, id: apiToken.environmentId }
+            : { projectId: params.projectId },
+          orderBy: { createdAt: 'asc' },
+        })).map(toEnvironmentSummary)
+        return { projectId: params.projectId, environments }
+      }
+
       const session = await requireApiSession(request)
       const orgId = await getOrgIdForProject(params.projectId)
       if (!orgId) return json({ error: 'not found' }, { status: 404 })
       await requireApiOrgMember(session.userId, orgId)
       const db = getDb()
-      const environments = (await db.query.environment.findMany({ where: { projectId: params.projectId }, orderBy: { createdAt: 'asc' } })).map((environment) => ({
-        id: environment.id,
-        projectId: environment.projectId,
-        name: environment.name,
-        slug: environment.slug,
-        createdAt: environment.createdAt,
-        updatedAt: environment.updatedAt,
-      }))
+      const environments = (await db.query.environment.findMany({ where: { projectId: params.projectId }, orderBy: { createdAt: 'asc' } })).map(toEnvironmentSummary)
       return { projectId: params.projectId, environments }
     },
   })
@@ -591,22 +648,26 @@ export const apiApp = new Spiceflow()
     method: 'GET',
     path: '/api/v0/projects/:projectId/environments/:id',
     detail: { tags: ['Environments'], summary: 'Get environment' },
-    response: { 200: environmentSummarySchema, 404: errorResponseSchema },
+    response: { 200: environmentSummarySchema, 403: errorResponseSchema, 404: errorResponseSchema },
     async handler({ params, request }) {
+      const apiToken = await getRequestApiToken(request)
+      if (apiToken) {
+        if (apiToken.projectId !== params.projectId) return json({ error: 'forbidden' }, { status: 403 })
+        const environment = await resolveEnvironment(params.id, params.projectId)
+        if (!environment || environment.projectId !== apiToken.projectId) return json({ error: 'not found' }, { status: 404 })
+        if (apiToken.environmentId && apiToken.environmentId !== environment.id) {
+          return json({ error: 'forbidden' }, { status: 403 })
+        }
+        return toEnvironmentSummary(environment)
+      }
+
       const session = await requireApiSession(request)
       const environment = await resolveEnvironment(params.id, params.projectId)
       const orgId = environment?.orgId ?? null
       if (!orgId) return json({ error: 'not found' }, { status: 404 })
       await requireApiOrgMember(session.userId, orgId)
       if (!environment) return json({ error: 'not found' }, { status: 404 })
-      return {
-        id: environment.id,
-        projectId: environment.projectId,
-        name: environment.name,
-        slug: environment.slug,
-        createdAt: environment.createdAt,
-        updatedAt: environment.updatedAt,
-      }
+      return toEnvironmentSummary(environment)
     },
   })
 
@@ -809,6 +870,32 @@ export const apiApp = new Spiceflow()
     detail: { tags: ['Auth'], summary: 'Get current user' },
     response: meResponseSchema,
     async handler({ request }) {
+      const apiToken = await getRequestApiToken(request)
+      if (apiToken) {
+        const db = getDb()
+        const token = await db.query.apiToken.findFirst({
+          where: { id: apiToken.tokenId },
+          with: { creator: true, project: { with: { org: true } } },
+        })
+        if (!token?.creator || !token.project?.org) {
+          throw new Response(JSON.stringify({ error: 'unauthorized' }), {
+            status: 401, headers: { 'content-type': 'application/json' },
+          })
+        }
+        return {
+          user: {
+            id: token.creator.id,
+            name: token.creator.name ?? '',
+            email: token.creator.email ?? '',
+          },
+          orgs: [{
+            id: token.project.org.id,
+            name: token.project.org.name,
+            role: 'member' as const,
+          }],
+        }
+      }
+
       const session = await requireApiSession(request)
       const db = getDb()
       const members = await db.query.orgMember.findMany({
