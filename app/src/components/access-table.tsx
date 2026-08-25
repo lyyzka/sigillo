@@ -62,24 +62,22 @@ export function AccessTable() {
     return count + (getRole(member) === "admin" ? 1 : 0)
   }, 0)
 
-  function saveRole(member: Member, nextRole: Member["role"]) {
+  async function saveRole(member: Member, nextRole: Member["role"]) {
     const previousRole = getRole(member)
     setError(null)
     setRoleOverrides((current) => ({ ...current, [member.id]: nextRole }))
     setPendingRoleId(member.id)
-    void (async () => {
-      try {
-        await updateOrgMemberRoleAction({ memberId: member.id, role: nextRole })
-      } catch (error) {
-        setRoleOverrides((current) => ({ ...current, [member.id]: previousRole }))
-        setError(error instanceof Error ? error.message : "Failed to update role")
-      } finally {
-        setPendingRoleId((current) => (current === member.id ? null : current))
-      }
-    })
+    try {
+      await updateOrgMemberRoleAction({ memberId: member.id, role: nextRole })
+    } catch (error) {
+      setRoleOverrides((current) => ({ ...current, [member.id]: previousRole }))
+      setError(error instanceof Error ? error.message : "Failed to update role")
+    } finally {
+      setPendingRoleId((current) => (current === member.id ? null : current))
+    }
   }
 
-  function removeMember(member: Member) {
+  async function removeMember(member: Member) {
     const name = member.user?.name || member.user?.email || "this user"
     if (!confirm(`Remove ${name} from this organization?`)) {
       return
@@ -87,15 +85,13 @@ export function AccessTable() {
 
     setError(null)
     setPendingDeleteId(member.id)
-    void (async () => {
-      try {
-        await removeOrgMemberAction({ memberId: member.id })
-      } catch (error) {
-        setError(error instanceof Error ? error.message : "Failed to remove user")
-      } finally {
-        setPendingDeleteId((current) => (current === member.id ? null : current))
-      }
-    })
+    try {
+      await removeOrgMemberAction({ memberId: member.id })
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to remove user")
+    } finally {
+      setPendingDeleteId((current) => (current === member.id ? null : current))
+    }
   }
 
   function getProjectAccessLabel(member: Member) {
@@ -156,7 +152,7 @@ export function AccessTable() {
                             if (nextRole === currentRole) {
                               return
                             }
-                            saveRole(member, nextRole)
+                            void saveRole(member, nextRole)
                           }}
                         >
                           <option value="admin">Admin</option>
@@ -199,7 +195,7 @@ export function AccessTable() {
                             ? "Remove yourself"
                             : "Remove user"}
                         variant="ghost"
-                        onClick={() => removeMember(member)}
+                        onClick={() => { void removeMember(member) }}
                       >
                         <TrashIcon className="size-3.5 text-muted-foreground" />
                       </Button>

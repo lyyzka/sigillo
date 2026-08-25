@@ -314,6 +314,7 @@ export async function updateOrgMemberRoleAction({ memberId, role }: {
   await db.update(schema.orgMember)
     .set({ role })
     .where(orm.eq(schema.orgMember.id, member.id))
+    .limit(1)
 
   return { id: member.id, role }
 }
@@ -333,7 +334,7 @@ export async function removeOrgMemberAction({ memberId }: { memberId: string }) 
     await ensureAnotherAdminExists(member.orgId, member.userId)
   }
 
-  await db.delete(schema.orgMember).where(orm.eq(schema.orgMember.id, member.id))
+  await db.delete(schema.orgMember).where(orm.eq(schema.orgMember.id, member.id)).limit(1)
   return { id: member.id }
 }
 
