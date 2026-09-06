@@ -24,7 +24,7 @@ export function cn(...inputs: ClassValue[]) {
 // server and the client to agree; see `<TimeAgo>` for the render-time gate.
 
 export function formatAbsoluteDate({ ts, timeZone }: { ts: number; timeZone: string }) {
-  return new Date(ts).toLocaleDateString('en-US', {
+  return new Date(ts).toLocaleDateString('zh-CN', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -34,9 +34,9 @@ export function formatAbsoluteDate({ ts, timeZone }: { ts: number; timeZone: str
 
 export function formatTime({ ts, now, timeZone }: { ts: number; now: number; timeZone: string }) {
   const diff = now - ts
-  if (diff < 60_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
   return formatAbsoluteDate({ ts, timeZone })
 }
 

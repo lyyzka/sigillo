@@ -57,8 +57,8 @@ export function EventLogTable() {
           }}
         >
           <SelectTrigger size="sm" className="w-auto min-w-40">
-            <SelectValue placeholder="All environments">
-              {environments.find((e) => e.id === selectedEnvId)?.name || "All environments"}
+            <SelectValue placeholder="所有环境">
+              {environments.find((e) => e.id === selectedEnvId)?.name || "所有环境"}
             </SelectValue>
           </SelectTrigger>
           <SelectPopup>
@@ -74,8 +74,8 @@ export function EventLogTable() {
       {events.length === 0 ? (
         <EmptyState
           icon={<ClockIcon className="size-6 text-muted-foreground" />}
-          title="No events yet"
-          description="Secret changes will appear here as an audit trail."
+          title="暂无事件"
+          description="密钥变更会在这里显示为审计记录。"
         />
       ) : (
         <Frame className="w-full">
@@ -89,11 +89,11 @@ export function EventLogTable() {
             </colgroup>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead>Secret</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead>Value</TableHead>
-                <TableHead>Time</TableHead>
-                <TableHead>User</TableHead>
+                <TableHead>密钥</TableHead>
+                <TableHead>操作</TableHead>
+                <TableHead>值</TableHead>
+                <TableHead>时间</TableHead>
+                <TableHead>用户</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -108,11 +108,11 @@ export function EventLogTable() {
                     <TableCell>
                       {evt.operation === "set" ? (
                         <Badge variant="default" size="sm" className="bg-emerald-600 text-white">
-                          set
+                          设置
                         </Badge>
                       ) : (
                         <Badge variant="destructive" size="sm">
-                          delete
+                          删除
                         </Badge>
                       )}
                     </TableCell>
@@ -130,7 +130,7 @@ export function EventLogTable() {
                           <button
                             onClick={() => toggleValue(evt.id)}
                             className="text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
-                            title={isVisible ? "Hide value" : "Reveal value"}
+                            title={isVisible ? "隐藏值" : "显示值"}
                           >
                             {isVisible ? (
                               <EyeOffIcon className="size-3.5" />

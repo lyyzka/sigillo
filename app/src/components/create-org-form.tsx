@@ -13,7 +13,7 @@ import { Input } from 'sigillo-app/src/components/ui/input'
 import { createOrgAction } from '../actions.ts'
 import { COMMON_EMAIL_DOMAINS, getEmailDomain } from '../lib/utils.ts'
 
-const orgSchema = z.object({ name: z.string().min(1, 'Name is required') })
+const orgSchema = z.object({ name: z.string().min(1, '名称不能为空') })
 const fields = orgSchema.keyof().enum
 
 export function CreateOrgForm() {
@@ -29,7 +29,7 @@ export function CreateOrgForm() {
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 flex flex-col gap-2">
           <ErrorBoundary.ErrorMessage className="text-sm text-destructive" />
           <ErrorBoundary.ResetButton className="text-sm text-destructive underline cursor-pointer self-start">
-            Try again
+            重试
           </ErrorBoundary.ResetButton>
         </div>
       }
@@ -42,11 +42,11 @@ export function CreateOrgForm() {
         }}
       >
         <div>
-          <label htmlFor="org-name" className="text-sm font-medium mb-1.5 block">Name</label>
+          <label htmlFor="org-name" className="text-sm font-medium mb-1.5 block">名称</label>
           <Input
             id="org-name"
             name={fields.name}
-            placeholder="My Organization"
+            placeholder="我的组织"
             required
             autoFocus
             className="w-full"
@@ -61,14 +61,14 @@ export function CreateOrgForm() {
               className="mt-0.5 size-4 rounded border-border accent-primary"
             />
             <span className="text-sm">
-              <span className="font-medium">Auto-join by email domain</span>
+              <span className="font-medium">按邮箱域名自动加入</span>
               <span className="block text-muted-foreground mt-0.5">
-                Anyone with an <span className="font-mono text-foreground">@{domain}</span> email will automatically join this organization.
+                所有使用 <span className="font-mono text-foreground">@{domain}</span> 邮箱的用户都会自动加入此组织。
               </span>
             </span>
           </label>
         )}
-        <Button type="submit">Create Organization</Button>
+        <Button type="submit">创建组织</Button>
       </form>
     </ErrorBoundary>
   )

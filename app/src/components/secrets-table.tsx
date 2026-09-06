@@ -94,7 +94,7 @@ function SecretValueCell({
       <button
         onClick={onToggle}
         className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
-        title={visible ? "Hide value" : "Reveal value"}
+        title={visible ? "隐藏值" : "显示值"}
       >
         {visible ? (
           <EyeOffIcon className="size-4" />
@@ -204,7 +204,7 @@ export function SecretsTable({
       await saveSecretsAction({ edits, environmentIds: [environmentId] });
       setImportOpen(false);
     } catch (e: any) {
-      alert(e?.message || "Failed to import secrets");
+      alert(e?.message || "导入密钥失败");
     } finally {
       setImporting(false);
     }
@@ -238,7 +238,7 @@ export function SecretsTable({
     try {
       await navigator.clipboard.writeText(envFileText);
     } catch (error: any) {
-      alert(error?.message || "Failed to copy .env contents");
+      alert(error?.message || "复制 .env 内容失败");
     }
   }, [envFileText]);
 
@@ -248,13 +248,13 @@ export function SecretsTable({
       <>
         <EmptyState
           icon={<KeyIcon className="size-6 text-muted-foreground" />}
-          title="No secrets yet"
-          description="Add secrets manually or import them from a .env file to get started."
+          title="暂无密钥"
+          description="手动添加密钥，或从 .env 文件导入以开始使用。"
         >
           <div className="flex items-center gap-3">
             <Button size="sm" onClick={addNewSecret}>
               <PlusIcon className="size-4" />
-              Add Secret
+              添加密钥
             </Button>
             <Button
               size="sm"
@@ -262,7 +262,7 @@ export function SecretsTable({
               onClick={() => setImportOpen(true)}
             >
               <UploadIcon className="size-4" />
-              Import .env
+              导入 .env
             </Button>
           </div>
         </EmptyState>
@@ -284,9 +284,9 @@ export function SecretsTable({
           </colgroup>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="whitespace-normal">Key</TableHead>
-              <TableHead className="whitespace-normal">Value</TableHead>
-              <TableHead>Last Updated</TableHead>
+              <TableHead className="whitespace-normal">键</TableHead>
+              <TableHead className="whitespace-normal">值</TableHead>
+              <TableHead>最后更新</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -328,7 +328,7 @@ export function SecretsTable({
                     <button
                       onClick={() => setDeleteTarget({ name: secret.name })}
                       className="text-muted-foreground hover:text-destructive cursor-pointer"
-                      title="Delete secret"
+                      title="删除密钥"
                     >
                       <TrashIcon className="size-3.5" />
                     </button>
@@ -353,7 +353,7 @@ export function SecretsTable({
                       autoComplete="off"
                       data-1p-ignore
                       data-lpignore="true"
-                      placeholder="Missing — add a value"
+                      placeholder="缺失——请添加值"
                       value={missingEdits[name] ?? ""}
                       onChange={(e) => setMissingEdits((prev) => ({ ...prev, [name]: e.target.value }))}
                        className={cn(
@@ -363,7 +363,7 @@ export function SecretsTable({
                      />
                    </TableCell>
                   <TableCell className="whitespace-nowrap">
-                    <span className="text-destructive text-xs">missing</span>
+                    <span className="text-destructive text-xs">缺失</span>
                   </TableCell>
                   <TableCell />
                 </TableRow>
@@ -399,18 +399,18 @@ export function SecretsTable({
                       data-lpignore="true"
                       value={secret.value}
                       onChange={(e) => updateNewSecret(secret.id, "value", e.target.value)}
-                      placeholder="secret value"
+                      placeholder="密钥值"
                       className="w-full min-w-0 border-transparent bg-transparent px-1.5 mono-sm focus:border-input hover:border-input"
                     />
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
-                    <span className="text-xs text-muted-foreground">new</span>
+                    <span className="text-xs text-muted-foreground">新增</span>
                   </TableCell>
                   <TableCell className="p-0">
                     <button
                       onClick={() => removeNewSecret(secret.id)}
                       className="text-muted-foreground hover:text-destructive cursor-pointer"
-                      title="Remove draft secret"
+                      title="移除草稿密钥"
                     >
                       <TrashIcon className="size-3.5" />
                     </button>
@@ -426,7 +426,7 @@ export function SecretsTable({
         <div className="flex flex-wrap items-center gap-2 px-1 pb-2">
           <Button onClick={addNewSecret} size="xs">
             <PlusIcon className="size-3" />
-            Add Secret
+            添加密钥
           </Button>
           {missingKeys.length > 0 && (
             <Button
@@ -435,7 +435,7 @@ export function SecretsTable({
               variant="ghost"
             >
               <ArrowDownToLineIcon className="size-3" />
-              Sync {missingKeys.length} missing
+              同步 {missingKeys.length} 个缺失项
             </Button>
           )}
           <div className="flex-1" />
@@ -445,7 +445,7 @@ export function SecretsTable({
             variant="ghost"
           >
             <UploadIcon className="size-3" />
-            Import .env
+            导入 .env
           </Button>
           <Button
             onClick={handleDownloadEnv}
@@ -453,7 +453,7 @@ export function SecretsTable({
             variant="ghost"
           >
             <DownloadIcon className="size-3" />
-            Download .env
+            下载 .env
           </Button>
           <Button
             onClick={() => void handleCopyEnv()}
@@ -461,7 +461,7 @@ export function SecretsTable({
             variant="ghost"
           >
             <CopyIcon className="size-3" />
-            Copy as .env
+            复制为 .env
           </Button>
         </div>
       </Frame>
@@ -504,7 +504,7 @@ export function SecretsTable({
             setNewSecrets([]);
             setSaveOpen(false);
           } catch (e: any) {
-            alert(e?.message || "Failed to save secrets");
+            alert(e?.message || "保存密钥失败");
           } finally {
             setSaving(false);
           }
@@ -515,7 +515,7 @@ export function SecretsTable({
       {totalDirtyCount > 0 && (
         <div className="flex justify-end mt-3">
           <Button onClick={() => setSaveOpen(true)}>
-            Save {totalDirtyCount} secret{totalDirtyCount > 1 ? "s" : ""}
+            保存 {totalDirtyCount} 个密钥
           </Button>
         </div>
       )}
@@ -523,7 +523,7 @@ export function SecretsTable({
   );
 }
 
-const importEnvSchema = z.object({ envText: z.string().min(1, "Paste your .env contents") });
+const importEnvSchema = z.object({ envText: z.string().min(1, "请粘贴 .env 内容") });
 const importEnvFields = importEnvSchema.keyof().enum;
 
 function ImportEnvDialog({
@@ -541,9 +541,9 @@ function ImportEnvDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>Import .env</DialogTitle>
+          <DialogTitle>导入 .env</DialogTitle>
           <DialogDescription>
-            Paste your .env file contents below. Each line should be in KEY=value format.
+            在下方粘贴 .env 文件内容；每行应使用 KEY=value 格式。
           </DialogDescription>
         </DialogHeader>
         <form
@@ -563,10 +563,10 @@ function ImportEnvDialog({
           />
           <DialogFooter variant="bare" className="mt-4">
             <DialogClose render={<Button variant="outline" />}>
-              Cancel
+              取消
             </DialogClose>
             <Button type="submit">
-              Import
+              导入
             </Button>
           </DialogFooter>
         </form>
@@ -629,7 +629,7 @@ function EnvCheckboxList({
               className="sr-only"
             />
             <span className="text-sm font-medium">{env.name}</span>
-            {isCurrent && <span className="text-xs text-muted-foreground ml-auto">current</span>}
+            {isCurrent && <span className="text-xs text-muted-foreground ml-auto">当前</span>}
           </label>
         );
       })}
@@ -657,14 +657,14 @@ function DeleteFromEnvsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>Delete "{secretName}"</DialogTitle>
+          <DialogTitle>删除“{secretName}”</DialogTitle>
           <DialogDescription>
-            Choose which environments to remove this secret from.
+            选择要从哪些环境中删除此密钥。
           </DialogDescription>
         </DialogHeader>
         <EnvCheckboxList environments={environments} currentEnvId={currentEnvId} checked={checked} onToggle={toggle} />
         <DialogFooter variant="bare" className="px-6 pb-4 pt-2">
-          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <DialogClose render={<Button variant="outline" />}>取消</DialogClose>
           <Button
             variant="destructive"
             loading={deleting}
@@ -674,13 +674,13 @@ function DeleteFromEnvsDialog({
                 await deleteSecretAction({ name: secretName, environmentIds: selectedIds });
                 onOpenChange(false);
               } catch (e: any) {
-                alert(e?.message || "Failed to delete secret");
+                alert(e?.message || "删除密钥失败");
               } finally {
                 setDeleting(false);
               }
             }}
           >
-            Delete from {selectedIds.length} environment{selectedIds.length > 1 ? "s" : ""}
+            从 {selectedIds.length} 个环境中删除
           </Button>
         </DialogFooter>
       </DialogPopup>
@@ -711,17 +711,17 @@ function SaveToEnvsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>Save {dirtyCount} secret{dirtyCount > 1 ? "s" : ""}</DialogTitle>
+          <DialogTitle>保存 {dirtyCount} 个密钥</DialogTitle>
           <DialogDescription>
-            Choose which environments to apply the changes to.
-            Secrets are matched by name — missing keys will be created.
+            选择要应用这些更改的环境。
+            密钥按名称匹配，缺失的键会被创建。
           </DialogDescription>
         </DialogHeader>
         <EnvCheckboxList environments={environments} currentEnvId={currentEnvId} checked={checked} onToggle={toggle} />
         <DialogFooter variant="bare" className="px-6 pb-4 pt-2">
-          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <DialogClose render={<Button variant="outline" />}>取消</DialogClose>
           <Button loading={saving} onClick={() => onSave(selectedIds)}>
-            Save to {selectedIds.length} environment{selectedIds.length > 1 ? "s" : ""}
+            保存到 {selectedIds.length} 个环境
           </Button>
         </DialogFooter>
       </DialogPopup>
@@ -729,7 +729,7 @@ function SaveToEnvsDialog({
   );
 }
 
-const syncSchema = z.object({ sourceEnvironmentId: z.string().min(1, "Select an environment") });
+const syncSchema = z.object({ sourceEnvironmentId: z.string().min(1, "请选择环境") });
 const syncFields = syncSchema.keyof().enum;
 
 function SyncMissingDialog({
@@ -759,9 +759,9 @@ function SyncMissingDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>Sync missing secrets</DialogTitle>
+          <DialogTitle>同步缺失密钥</DialogTitle>
           <DialogDescription>
-            Copy {missingKeys.length} missing secret{missingKeys.length > 1 ? "s" : ""} from another environment into this one.
+            从另一个环境复制 {missingKeys.length} 个缺失密钥到当前环境。
           </DialogDescription>
         </DialogHeader>
         <form
@@ -777,12 +777,12 @@ function SyncMissingDialog({
                 names: missingKeys,
               });
               if (result.count === 0) {
-                setError("That environment doesn't have any of the missing secrets.");
+                setError("该环境不包含任何缺失的密钥。");
               } else {
                 handleOpenChange(false);
               }
             } catch (e: any) {
-              setError(e?.message || "Failed to sync secrets");
+              setError(e?.message || "同步密钥失败");
             } finally {
               setSyncing(false);
             }
@@ -791,24 +791,24 @@ function SyncMissingDialog({
           {error && <p className="text-sm text-destructive mb-3">{error}</p>}
           <div>
             <label htmlFor="sync-source-env" className="text-sm font-medium mb-1 block">
-              Source environment
+              来源环境
             </label>
             <NativeSelect id="sync-source-env" name={syncFields.sourceEnvironmentId} required autoFocus>
-              <option value="">Select an environment…</option>
+              <option value="">选择环境…</option>
               {otherEnvironments.map((env) => (
                 <option key={env.id} value={env.id}>{env.name}</option>
               ))}
             </NativeSelect>
             <p className="text-xs text-muted-foreground mt-2">
-              Only the {missingKeys.length} missing key{missingKeys.length > 1 ? "s" : ""} will be copied. Existing secrets are not affected.
+              仅复制这 {missingKeys.length} 个缺失键；已有密钥不会受影响。
             </p>
           </div>
           <DialogFooter variant="bare" className="mt-4">
             <DialogClose render={<Button variant="outline" />}>
-              Cancel
+              取消
             </DialogClose>
             <Button type="submit" loading={syncing}>
-              Sync from environment
+              从环境同步
             </Button>
           </DialogFooter>
         </form>

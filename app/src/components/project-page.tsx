@@ -61,8 +61,8 @@ function CliBanner() {
           setOpen(false);
         }}
         className="absolute right-0.5 top-0.5 z-10 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        aria-label="Dismiss CLI banner"
-        title="Dismiss"
+        aria-label="关闭 CLI 提示"
+        title="关闭"
       >
         <XIcon className="size-4" />
       </button>
@@ -70,10 +70,10 @@ function CliBanner() {
       <div className="flex flex-col gap-4 md:flex-row md:items-start">
         <div className="flex flex-1 flex-col gap-1.5">
           <h2 className="text-base font-semibold tracking-tight">
-            Use the Sigillo CLI
+            使用 Sigillo CLI
           </h2>
           <p className="text-sm leading-6 text-muted-foreground">
-            Install with npm, then use <code className="mono-sm text-foreground">sigillo run</code> to pass secrets to your process. Output is redacted by default.
+            使用 npm 安装后，通过 <code className="mono-sm text-foreground">sigillo run</code> 将密钥传递给进程。默认会遮蔽输出中的密钥。
           </p>
         </div>
 
@@ -120,7 +120,7 @@ export function ProjectPage() {
         <div className="flex items-center gap-2">
           {secrets.length > 0 && (
             <Button variant="ghost" size="sm" onClick={() => setAllVisible((v) => !v)}>
-              {allVisible ? "Hide all secrets" : "Show all secrets"}
+              {allVisible ? "隐藏所有密钥" : "显示所有密钥"}
             </Button>
           )}
           <Select
@@ -132,8 +132,8 @@ export function ProjectPage() {
             }}
           >
             <SelectTrigger size="sm" className="w-auto min-w-40">
-              <SelectValue placeholder="Select environment">
-                {environments.find((e) => e.id === selectedEnvId)?.name || "Select environment"}
+              <SelectValue placeholder="选择环境">
+                {environments.find((e) => e.id === selectedEnvId)?.name || "选择环境"}
               </SelectValue>
             </SelectTrigger>
             <SelectPopup>
@@ -153,7 +153,7 @@ export function ProjectPage() {
       {selectedEnvId ? (
         <SecretsTable allVisible={allVisible} />
       ) : (
-        <p className="text-muted-foreground text-sm">No environments yet.</p>
+        <p className="text-muted-foreground text-sm">暂无环境。</p>
       )}
     </div>
   );

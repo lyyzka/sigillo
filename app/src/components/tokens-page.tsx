@@ -36,19 +36,19 @@ export function TokensPage() {
         <h1 className="text-2xl font-bold tracking-tight">{projectName}</h1>
         <Button variant="outline" onClick={() => setCreateOpen(true)}>
           <PlusIcon className="size-4" />
-          Create token
+          创建令牌
         </Button>
       </div>
 
       {tokens.length === 0 ? (
         <EmptyState
           icon={<KeyIcon className="size-6 text-muted-foreground" />}
-          title="No API tokens yet"
-          description="Create a token to access secrets programmatically via the API."
+          title="暂无 API 令牌"
+          description="创建令牌后可通过 API 以编程方式访问密钥。"
         >
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <PlusIcon className="size-4" />
-            Create token
+            创建令牌
           </Button>
         </EmptyState>
       ) : (
@@ -79,10 +79,10 @@ function TokensTable() {
         </colgroup>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead>Name</TableHead>
-            <TableHead>Key</TableHead>
-            <TableHead>Scope</TableHead>
-            <TableHead>Created</TableHead>
+            <TableHead>名称</TableHead>
+            <TableHead>密钥</TableHead>
+            <TableHead>范围</TableHead>
+            <TableHead>创建时间</TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
@@ -99,7 +99,7 @@ function TokensTable() {
               </TableCell>
               <TableCell>
                 <span className="text-sm text-muted-foreground">
-                  {token.environmentName ?? "All environments"}
+                  {token.environmentName ?? "所有环境"}
                 </span>
               </TableCell>
               <TableCell>
@@ -111,16 +111,16 @@ function TokensTable() {
               <TableCell className="p-0">
                 <button
                   onClick={async () => {
-                    if (confirm(`Delete token "${token.name}"? This cannot be undone.`)) {
+                    if (confirm(`确定删除令牌“${token.name}”吗？此操作无法撤销。`)) {
                       try {
                         await deleteTokenAction({ tokenId: token.id })
                       } catch (e: any) {
-                        alert(e?.message || "Failed to delete token")
+                        alert(e?.message || "删除令牌失败")
                       }
                     }
                   }}
                   className="text-muted-foreground hover:text-destructive cursor-pointer"
-                  title="Delete token"
+                  title="删除令牌"
                 >
                   <TrashIcon className="size-3.5" />
                 </button>
@@ -133,7 +133,7 @@ function TokensTable() {
   )
 }
 
-const tokenSchema = z.object({ name: z.string().min(1, "Name is required"), environmentId: z.string().optional() })
+const tokenSchema = z.object({ name: z.string().min(1, "名称不能为空"), environmentId: z.string().optional() })
 const tokenFields = tokenSchema.keyof().enum
 
 function CreateTokenDialog({
@@ -182,9 +182,9 @@ function CreateTokenDialog({
       >
         <DialogPopup showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>Token created</DialogTitle>
+            <DialogTitle>令牌已创建</DialogTitle>
             <DialogDescription>
-              Copy this token now — you won't be able to see it again.
+              请立即复制此令牌，之后将无法再次查看。
             </DialogDescription>
           </DialogHeader>
           <div className="px-6 pb-2">
@@ -200,11 +200,11 @@ function CreateTokenDialog({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              Store this key securely. It grants access to secrets in this project.
+              请安全保存此令牌；它可访问该项目中的密钥。
             </p>
             <DialogFooter variant="bare" className="mt-4">
               <Button variant="outline" onClick={() => handleOpenChange(false)}>
-                Done
+                完成
               </Button>
             </DialogFooter>
           </div>
@@ -217,9 +217,9 @@ function CreateTokenDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>Create API token</DialogTitle>
+          <DialogTitle>创建 API 令牌</DialogTitle>
           <DialogDescription>
-            Generate a token for programmatic access to secrets in this project.
+            生成用于以编程方式访问此项目密钥的令牌。
           </DialogDescription>
         </DialogHeader>
         <form
@@ -236,7 +236,7 @@ function CreateTokenDialog({
               })
               setCreatedKey(result.key)
             } catch (e: any) {
-              setError(e?.message || "Failed to create token")
+              setError(e?.message || "创建令牌失败")
             } finally {
               setCreating(false)
             }
@@ -247,22 +247,22 @@ function CreateTokenDialog({
           )}
           <div className="flex flex-col gap-3">
             <div>
-              <label htmlFor="token-name" className="text-sm font-medium mb-1 block">Name</label>
+              <label htmlFor="token-name" className="text-sm font-medium mb-1 block">名称</label>
               <Input
                 id="token-name"
                 name={tokenFields.name}
-                placeholder="e.g. CI/CD pipeline"
+                placeholder="例如：CI/CD 流水线"
                 required
                 autoFocus
               />
             </div>
             <div>
-              <label htmlFor="token-env" className="text-sm font-medium mb-1 block">Environment scope</label>
+              <label htmlFor="token-env" className="text-sm font-medium mb-1 block">环境范围</label>
               <NativeSelect
                 id="token-env"
                 name={tokenFields.environmentId}
               >
-                <option value="">All environments</option>
+                <option value="">所有环境</option>
                 {environments.map((env) => (
                   <option key={env.id} value={env.id}>{env.name}</option>
                 ))}
@@ -271,10 +271,10 @@ function CreateTokenDialog({
           </div>
           <DialogFooter variant="bare" className="mt-4">
             <DialogClose render={<Button variant="outline" />}>
-              Cancel
+              取消
             </DialogClose>
             <Button type="submit">
-              Create token
+              创建令牌
             </Button>
           </DialogFooter>
         </form>

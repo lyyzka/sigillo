@@ -187,7 +187,7 @@ export async function ensureOAuthClient(request: Request): Promise<string> {
   })
   if (!res.ok) {
     const body = await res.text()
-    throw new Error(`OAuth client registration failed: ${res.status} ${body}`)
+    throw new Error(`OAuth 客户端注册失败：${res.status} ${body}`)
   }
   const { client_id }: { client_id: string } = await res.json()
 

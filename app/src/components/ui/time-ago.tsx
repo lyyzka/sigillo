@@ -43,7 +43,7 @@ export function TimeAgo({ ts, className }: { ts: number; className?: string }) {
   return (
     <time
       dateTime={new Date(ts).toISOString()}
-      title={new Date(ts).toLocaleString('en-US', { timeZone, timeZoneName: 'short' })}
+      title={new Date(ts).toLocaleString('zh-CN', { timeZone, timeZoneName: 'short' })}
       className={className}
     >
       {label}

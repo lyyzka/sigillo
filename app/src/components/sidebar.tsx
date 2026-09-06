@@ -90,17 +90,17 @@ function SidebarContent({
           </div>
           <div className="grid flex-1 text-left leading-tight min-w-0">
             <span className="truncate font-medium text-sm">
-              {currentOrg?.name || "Select org"}
+              {currentOrg?.name || "选择组织"}
             </span>
             <span className="truncate text-xs text-muted-foreground">
-              {currentOrg?.role || "No organization"}
+              {currentOrg?.role === 'admin' ? '管理员' : currentOrg?.role === 'member' ? '成员' : '没有组织'}
             </span>
           </div>
           <ChevronsUpDownIcon className="ml-auto size-4 shrink-0 text-muted-foreground" />
         </DropdownMenuTrigger>
 
         <DropdownMenuPopup side="bottom" align="start" sideOffset={4}>
-          <DropdownMenuLabel>Organizations</DropdownMenuLabel>
+          <DropdownMenuLabel>组织</DropdownMenuLabel>
           {orgs.map((org) => (
             <DropdownMenuLinkItem
               key={org.id}
@@ -122,7 +122,7 @@ function SidebarContent({
               <PlusIcon className="size-4" />
             </div>
             <span className="text-muted-foreground font-medium">
-              Add organization
+              添加组织
             </span>
           </DropdownMenuLinkItem>
         </DropdownMenuPopup>
@@ -132,7 +132,7 @@ function SidebarContent({
       <div className="flex-1 overflow-auto pt-4">
         <div className="mb-1 pl-2">
           <span className="text-xs font-medium text-muted-foreground">
-            Projects
+            项目
           </span>
         </div>
 
@@ -167,12 +167,12 @@ function SidebarContent({
               className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground cursor-pointer"
             >
               <PlusIcon className="size-4 shrink-0 opacity-60" />
-              New project
+              新建项目
             </button>
           )}
           {!currentOrgId && (
             <p className="text-xs text-muted-foreground px-2 py-1.5">
-              Select an org first
+              请先选择组织
             </p>
           )}
         </nav>
@@ -191,7 +191,7 @@ function SidebarContent({
             </div>
             <div className="grid flex-1 text-left leading-tight min-w-0">
               <span className="truncate font-medium text-sm">
-                {user?.name || "Guest"}
+                {user?.name || "访客"}
               </span>
               <span className="truncate text-xs text-muted-foreground">
                 {user?.email || ""}
@@ -208,7 +208,7 @@ function SidebarContent({
               </div>
               <div className="grid flex-1 leading-tight min-w-0">
                 <span className="truncate font-medium text-sm">
-                  {user?.name || "Guest"}
+                  {user?.name || "访客"}
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
                   {user?.email || ""}
@@ -229,7 +229,7 @@ function SidebarContent({
               }}
             >
               <LogOutIcon className="size-4 text-muted-foreground" />
-              Log out
+              退出登录
             </DropdownMenuItem>
           </DropdownMenuPopup>
         </DropdownMenu>
@@ -278,7 +278,7 @@ export function MobileDrawer() {
           className="fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-background border-r border-sidebar-border p-6 md:hidden outline-none"
           aria-describedby={undefined}
         >
-          <Drawer.Title className="sr-only">Navigation</Drawer.Title>
+          <Drawer.Title className="sr-only">导航</Drawer.Title>
           <SidebarContent onNavigate={() => setOpen(false)} />
         </Drawer.Content>
       </Drawer.Portal>
@@ -289,7 +289,7 @@ export function MobileDrawer() {
 // ── Shared new project dialog ──────────────────────────────────
 // Used by both the Sidebar and the empty-state NewProjectButton.
 
-const projectSchema = z.object({ name: z.string().min(1, "Name is required") });
+const projectSchema = z.object({ name: z.string().min(1, "名称不能为空") });
 const projectFields = projectSchema.keyof().enum;
 
 export function NewProjectDialog({
@@ -305,10 +305,9 @@ export function NewProjectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>New Project</DialogTitle>
+          <DialogTitle>新建项目</DialogTitle>
           <DialogDescription>
-            Create a new project in this organization. It will get development,
-            preview, and production environments by default.
+            在此组织中创建项目。默认会创建开发、预览和生产环境。
           </DialogDescription>
         </DialogHeader>
         <ErrorBoundary
@@ -316,7 +315,7 @@ export function NewProjectDialog({
             <div className="px-6 pb-4 flex flex-col gap-2">
               <ErrorBoundary.ErrorMessage className="text-sm text-destructive" />
               <ErrorBoundary.ResetButton className="text-sm text-destructive underline cursor-pointer self-start">
-                Try again
+                重试
               </ErrorBoundary.ResetButton>
             </div>
           }
@@ -331,16 +330,16 @@ export function NewProjectDialog({
           >
             <Input
               name={projectFields.name}
-              placeholder="Project name"
+              placeholder="项目名称"
               required
               autoFocus
               className="w-full"
             />
             <DialogFooter variant="bare" className="mt-4">
               <DialogClose render={<Button variant="outline" />}>
-                Cancel
+                取消
               </DialogClose>
-              <Button type="submit">Create Project</Button>
+              <Button type="submit">创建项目</Button>
             </DialogFooter>
           </form>
         </ErrorBoundary>
@@ -358,7 +357,7 @@ export function MobileMenuButton() {
     <button
       className="md:hidden flex items-center justify-center size-9 rounded-md hover:bg-accent transition-colors cursor-pointer"
       onClick={() => window.dispatchEvent(new CustomEvent("sigillo:toggle-drawer"))}
-      aria-label="Open menu"
+      aria-label="打开菜单"
     >
       <MenuIcon className="size-5" />
     </button>
@@ -394,7 +393,7 @@ export function FooterColo() {
 
   return (
     <span className="text-xs text-muted-foreground">
-      database in {colo}
+      数据库位于 {colo}
     </span>
   );
 }
@@ -445,9 +444,9 @@ export function ThemeSelect() {
 
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <span>Theme</span>
+      <span>主题</span>
       <NativeSelect
-        aria-label="Theme"
+        aria-label="主题"
         className="min-h-7 min-w-28 text-xs sm:min-h-7 sm:text-xs"
         value={theme}
         onChange={(event) => {
@@ -456,9 +455,9 @@ export function ThemeSelect() {
           applyTheme(nextTheme)
         }}
       >
-        <option value="system">System</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
+        <option value="system">跟随系统</option>
+        <option value="light">浅色</option>
+        <option value="dark">深色</option>
       </NativeSelect>
     </div>
   )
@@ -478,7 +477,7 @@ export function NewProjectButton({
     <>
       <Button onClick={() => setOpen(true)}>
         <PlusIcon className="size-4 mr-2" />
-        Create project
+        创建项目
       </Button>
       <NewProjectDialog
         open={open}

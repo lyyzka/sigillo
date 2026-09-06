@@ -23,7 +23,7 @@ export function AcceptInviteButton({ invitationId }: { invitationId: string }) {
         <form action={async () => {
           await acceptInviteAction({ invitationId })
         }}>
-          <Button type="submit">Join organization</Button>
+          <Button type="submit">加入组织</Button>
         </form>
       </ErrorBoundary>
     </div>

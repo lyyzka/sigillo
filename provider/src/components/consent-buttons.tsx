@@ -26,7 +26,7 @@ export function ConsentButtons() {
         onClick={() => handleConsent(true)}
         loading={loading}
       >
-        {loading ? "Redirecting…" : "Allow access"}
+        {loading ? "正在跳转…" : "允许访问"}
       </Button>
       <Button
         className="sm:w-auto"
@@ -35,7 +35,7 @@ export function ConsentButtons() {
         onClick={() => handleConsent(false)}
         disabled={loading}
       >
-        Deny
+        拒绝
       </Button>
     </div>
   )

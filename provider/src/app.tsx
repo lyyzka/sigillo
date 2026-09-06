@@ -25,7 +25,7 @@ function ErrorScreen({ error, errorDescription }: { error: string; errorDescript
         <div className="flex flex-col gap-1.5">
           <SigilloLogo className="h-[36px] w-auto" />
           <h1 className="text-2xl font-semibold tracking-[-0.02em] text-foreground">
-            Something went wrong
+            出现了一点问题
           </h1>
         </div>
 
@@ -41,8 +41,7 @@ function ErrorScreen({ error, errorDescription }: { error: string; errorDescript
         </div>
 
         <p className="mt-4 text-sm leading-6 text-muted-foreground">
-          Try signing in again. If this keeps happening, contact the administrator
-          of the app that redirected you here.
+          请重新登录。若问题持续出现，请联系将你跳转到此处的应用管理员。
         </p>
 
         <div className="mt-6 flex gap-3">
@@ -50,7 +49,7 @@ function ErrorScreen({ error, errorDescription }: { error: string; errorDescript
             href="/"
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
           >
-            Go back
+            返回
           </a>
         </div>
       </section>
@@ -71,22 +70,22 @@ function ConsentScreen({
         <div className="flex flex-col gap-1.5">
           <SigilloLogo className="h-[36px] w-auto" />
           <h1 className="text-2xl font-semibold tracking-[-0.02em] text-foreground">
-            Sign in to continue
+            登录以继续
           </h1>
         </div>
 
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           {redirectDomain ? (
             <>
-              <span className="font-medium text-foreground">{redirectDomain}</span> wants to use your Sigillo account.
+              <span className="font-medium text-foreground">{redirectDomain}</span> 希望使用你的 Sigillo 账户。
             </>
           ) : (
-            'An app wants to use your Sigillo account.'
+            '某个应用希望使用你的 Sigillo 账户。'
           )}
         </p>
 
         <p className="mt-4 text-sm leading-6 text-muted-foreground">
-          Only continue if you trust this domain.
+          仅在信任此域名时继续。
         </p>
 
         <div className="mt-6">
@@ -94,12 +93,12 @@ function ConsentScreen({
         </div>
 
         <p className="mt-6 text-sm leading-6 text-muted-foreground">
-          Wrong account?{' '}
+          账户不对？{' '}
           <a
             href={switchAccountUrl}
             className="font-medium text-foreground underline underline-offset-4 hover:no-underline"
           >
-            Sign in with a different Google account
+            使用其他 Google 账户登录
           </a>
         </p>
       </section>
@@ -195,7 +194,7 @@ async function startGoogleSignIn(request: Request, callbackUrl: URL) {
     returnHeaders: true,
   })
   if (!response?.url) {
-    return new Response('Failed to initiate Google sign-in', { status: 500 })
+    return new Response('无法发起 Google 登录', { status: 500 })
   }
   const redirect = new Response(null, { status: 302, headers: { Location: response.url } })
   // Forward all Set-Cookie headers from BetterAuth (state cookie for CSRF).
@@ -224,11 +223,11 @@ export const app = new Spiceflow()
   // ── Root layout ───────────────────────────────────────────────
   .layout('/*', async ({ children }) => {
     return (
-      <html lang="en">
+      <html lang="zh-CN">
         <Head>
           <Head.Meta charSet="UTF-8" />
           <Head.Meta name="viewport" content="width=device-width, initial-scale=1.0" />
-          <Head.Title>Sigillo Auth</Head.Title>
+          <Head.Title>Sigillo 身份验证</Head.Title>
           <Head.Link rel="icon" type="image/png" href="/favicon.png" />
         </Head>
         <body className="min-h-screen bg-background font-sans text-foreground antialiased">

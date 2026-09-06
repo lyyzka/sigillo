@@ -71,15 +71,15 @@ export function AccessTable() {
       await updateOrgMemberRoleAction({ memberId: member.id, role: nextRole })
     } catch (error) {
       setRoleOverrides((current) => ({ ...current, [member.id]: previousRole }))
-      setError(error instanceof Error ? error.message : "Failed to update role")
+      setError(error instanceof Error ? error.message : "更新角色失败")
     } finally {
       setPendingRoleId((current) => (current === member.id ? null : current))
     }
   }
 
   async function removeMember(member: Member) {
-    const name = member.user?.name || member.user?.email || "this user"
-    if (!confirm(`Remove ${name} from this organization?`)) {
+    const name = member.user?.name || member.user?.email || "该用户"
+    if (!confirm(`确定要将 ${name} 移出此组织吗？`)) {
       return
     }
 
@@ -88,16 +88,16 @@ export function AccessTable() {
     try {
       await removeOrgMemberAction({ memberId: member.id })
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to remove user")
+      setError(error instanceof Error ? error.message : "移除用户失败")
     } finally {
       setPendingDeleteId((current) => (current === member.id ? null : current))
     }
   }
 
   function getProjectAccessLabel(member: Member) {
-    if (getRole(member) === 'admin') return 'All (admin)'
-    if (member.accessRules.length === 0) return 'All'
-    return `${member.accessRules.length} of ${orgProjects.length}`
+    if (getRole(member) === 'admin') return '全部（管理员）'
+    if (member.accessRules.length === 0) return '全部'
+    return `${orgProjects.length} 个中的 ${member.accessRules.length} 个`
   }
 
   const editingMember = editingMemberId ? members.find((m) => m.id === editingMemberId) ?? null : null
@@ -109,10 +109,10 @@ export function AccessTable() {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="min-w-[180px]">Member</TableHead>
-              <TableHead className="w-28">Role</TableHead>
-              <TableHead className="w-28">Projects</TableHead>
-              <TableHead className="w-28">Joined</TableHead>
+              <TableHead className="min-w-[180px]">成员</TableHead>
+              <TableHead className="w-28">角色</TableHead>
+              <TableHead className="w-28">项目</TableHead>
+              <TableHead className="w-28">加入时间</TableHead>
               {canManage ? <TableHead className="w-12" /> : null}
             </TableRow>
           </TableHeader>
@@ -155,8 +155,8 @@ export function AccessTable() {
                             void saveRole(member, nextRole)
                           }}
                         >
-                          <option value="admin">Admin</option>
-                          <option disabled={isLastAdmin} value="member">Member</option>
+                          <option value="admin">管理员</option>
+                          <option disabled={isLastAdmin} value="member">成员</option>
                         </NativeSelect>
                         {isSavingRole ? (
                           <Spinner className="absolute right-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -185,15 +185,15 @@ export function AccessTable() {
                   {canManage ? (
                     <TableCell className="p-0">
                       <Button
-                        aria-label={isCurrentUser ? "Remove yourself" : "Remove user"}
+                        aria-label={isCurrentUser ? "移除自己" : "移除用户"}
                         disabled={isBusy || isLastAdmin}
                         loading={isDeleting}
                         size="icon-xs"
                         title={isLastAdmin
-                          ? "This organization needs at least one admin"
+                          ? "组织至少需要一名管理员"
                           : isCurrentUser
-                            ? "Remove yourself"
-                            : "Remove user"}
+                            ? "移除自己"
+                            : "移除用户"}
                         variant="ghost"
                         onClick={() => { void removeMember(member) }}
                       >
@@ -260,7 +260,7 @@ function ManageAccessDialog({
       }
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save')
+      setError(err instanceof Error ? err.message : '保存失败')
     } finally {
       setSaving(false)
     }
@@ -271,7 +271,7 @@ function ManageAccessDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            Manage Access for {member?.user?.name || member?.user?.email || 'Member'}
+            管理 {member?.user?.name || member?.user?.email || '成员'} 的访问权限
           </DialogTitle>
         </DialogHeader>
 
@@ -288,7 +288,7 @@ function ManageAccessDialog({
               }}
               className="accent-primary"
             />
-            <span className="font-medium">Full access to all projects</span>
+            <span className="font-medium">可访问所有项目</span>
           </label>
 
           {!fullAccess && (
@@ -312,10 +312,10 @@ function ManageAccessDialog({
 
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>
-            Cancel
+            取消
           </DialogClose>
           <Button onClick={handleSave} loading={saving}>
-            Save
+            保存
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -49,29 +49,29 @@ function AutoJoinSection() {
       <div className="p-5">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <UsersIcon className="size-5" />
-          Auto-join by email domain
+          按邮箱域名自动加入
         </h2>
         <p className="text-muted-foreground text-sm mt-2">
           {isEnabled ? (
-            <>Users with a verified <span className="font-mono text-foreground">@{currentDomain}</span> email are automatically added to this organization.</>
+            <>已验证 <span className="font-mono text-foreground">@{currentDomain}</span> 邮箱的用户会自动加入此组织。</>
           ) : (
-            'Automatically add users to this organization based on their email domain.'
+            '根据用户的邮箱域名自动将其加入此组织。'
           )}
         </p>
       </div>
       <div className="border-t border-border px-5 py-4 bg-muted/30 rounded-b-lg flex items-center justify-between">
         <div>
           <p className="text-sm font-medium">
-            {isEnabled ? 'Auto-join is enabled' : 'Auto-join is disabled'}
+            {isEnabled ? '已启用自动加入' : '已停用自动加入'}
           </p>
           {!isEnabled && userDomain && !isPublicDomain && (
             <p className="text-xs text-muted-foreground">
-              Will use your email domain: <span className="font-mono">@{userDomain}</span>
+              将使用你的邮箱域名：<span className="font-mono">@{userDomain}</span>
             </p>
           )}
           {isPublicDomain && isEnabled && (
             <p className="text-xs text-muted-foreground">
-              You can disable auto-join but cannot re-enable it with a public email domain.
+              你可以停用自动加入，但不能使用公共邮箱域名重新启用它。
             </p>
           )}
         </div>
@@ -80,7 +80,7 @@ function AutoJoinSection() {
           onClick={handleToggle}
           disabled={isPending || (!isEnabled && isPublicDomain)}
         >
-          {isPending ? 'Saving...' : isEnabled ? 'Disable' : 'Enable'}
+          {isPending ? '正在保存…' : isEnabled ? '停用' : '启用'}
         </Button>
       </div>
     </div>
@@ -101,9 +101,9 @@ export function SettingsPage() {
   return (
     <div className="flex flex-col gap-8 w-full max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+        <h1 className="text-2xl font-bold tracking-tight">设置</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Manage your organization settings.
+          管理组织设置。
         </p>
       </div>
 
@@ -113,18 +113,17 @@ export function SettingsPage() {
         <div className="p-5">
           <h2 className="text-lg font-semibold text-destructive flex items-center gap-2">
             <AlertTriangleIcon className="size-5" />
-            Danger Zone
+            危险区域
           </h2>
           <p className="text-muted-foreground text-sm mt-2">
-            Deleting this organization is permanent. All projects, environments,
-            secrets, tokens, and member access will be removed immediately.
+            删除此组织将永久生效。所有项目、环境、密钥、令牌及成员访问权限都会立即移除。
           </p>
         </div>
         <div className="border-t border-destructive/40 px-5 py-4 bg-destructive/5 rounded-b-lg flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium">Delete organization</p>
+            <p className="text-sm font-medium">删除组织</p>
             <p className="text-xs text-muted-foreground">
-              This action cannot be undone.
+              此操作无法撤销。
             </p>
           </div>
           <Dialog open={open} onOpenChange={setOpen}>
@@ -132,20 +131,20 @@ export function SettingsPage() {
               variant="destructive"
               onClick={() => setOpen(true)}
             >
-              Delete organization
+              删除组织
             </Button>
             <DialogPopup>
               <DialogHeader>
-                <DialogTitle>Delete {orgName}?</DialogTitle>
+                <DialogTitle>删除 {orgName}？</DialogTitle>
                 <DialogDescription>
-                  This will permanently delete the organization and everything inside it.
+                  这会永久删除该组织及其中的所有内容。
                 </DialogDescription>
               </DialogHeader>
               <div className="px-6 pb-4">
                 {projectNames.length > 0 ? (
                   <div>
                     <p className="text-sm font-medium mb-2">
-                      The following {projectNames.length === 1 ? 'project' : `${projectNames.length} projects`} will be deleted:
+                      将删除以下 {projectNames.length} 个项目：
                     </p>
                     <ul className="text-sm text-muted-foreground space-y-1">
                       {projectNames.map((name) => (
@@ -158,7 +157,7 @@ export function SettingsPage() {
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    This organization has no projects.
+                    此组织没有项目。
                   </p>
                 )}
               </div>
@@ -166,14 +165,14 @@ export function SettingsPage() {
                 <DialogClose
                   render={<Button variant="outline" />}
                 >
-                  Cancel
+                  取消
                 </DialogClose>
                 <Button
                   variant="destructive"
                   onClick={handleDelete}
                   disabled={isPending}
                 >
-                  {isPending ? 'Deleting...' : 'Delete organization'}
+                  {isPending ? '正在删除…' : '删除组织'}
                 </Button>
               </DialogFooter>
             </DialogPopup>

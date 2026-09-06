@@ -92,7 +92,7 @@ function EditableEnvCell({ env, field }: { env: Environment; field: "name" | "sl
       await renameEnvAction({ id: env.id, [field]: trimmed });
       setEditing(false);
     } catch (e: any) {
-      alert(e?.message || `Failed to rename ${field}`);
+      alert(e?.message || `重命名${field === 'name' ? '名称' : '标识'}失败`);
       setValue(env[field]);
       setEditing(false);
     }
@@ -124,7 +124,7 @@ function EditableEnvCell({ env, field }: { env: Environment; field: "name" | "sl
     <button
       onClick={() => setEditing(true)}
       className="group flex items-center gap-1.5 cursor-pointer text-left"
-      title={`Click to edit ${field}`}
+      title={`点击编辑${field === 'name' ? '名称' : '标识'}`}
     >
       {field === "name" ? (
         <span className="flex items-center gap-2">
@@ -141,7 +141,7 @@ function EditableEnvCell({ env, field }: { env: Environment; field: "name" | "sl
   );
 }
 
-const envSchema = z.object({ name: z.string().min(1, "Name is required"), slug: z.string().min(1, "Slug is required") });
+const envSchema = z.object({ name: z.string().min(1, "名称不能为空"), slug: z.string().min(1, "标识不能为空") });
 const envFields = envSchema.keyof().enum;
 
 export function EnvironmentsPage() {
@@ -164,19 +164,19 @@ export function EnvironmentsTable() {
   const columns: ColumnDef<Environment>[] = [
     {
       accessorKey: "name",
-      header: "Environment",
+      header: "环境",
       size: 200,
       cell: ({ row }) => <EditableEnvCell env={row.original} field="name" />,
     },
     {
       accessorKey: "slug",
-      header: "Slug",
+      header: "标识",
       size: 160,
       cell: ({ row }) => <EditableEnvCell env={row.original} field="slug" />,
     },
     {
       accessorKey: "accessRole",
-      header: "Min Role",
+      header: "最低角色",
       size: 120,
       cell: ({ row }) => (
         <NativeSelect
@@ -187,18 +187,18 @@ export function EnvironmentsTable() {
             try {
               await updateEnvironmentAccessRoleAction({ environmentId: row.original.id, accessRole: nextRole })
             } catch (err: any) {
-              alert(err?.message || 'Failed to update access role')
+              alert(err?.message || '更新访问角色失败')
             }
           }}
         >
-          <option value="member">Member</option>
-          <option value="admin">Admin</option>
+          <option value="member">成员</option>
+          <option value="admin">管理员</option>
         </NativeSelect>
       ),
     },
     {
       accessorKey: "updatedAt",
-      header: "Last Updated",
+      header: "最后更新",
       size: 130,
       cell: ({ row }) => (
         <TimeAgo
@@ -209,7 +209,7 @@ export function EnvironmentsTable() {
     },
     {
       accessorKey: "createdAt",
-      header: "Created",
+      header: "创建时间",
       size: 130,
       cell: ({ row }) => (
         <TimeAgo
@@ -225,16 +225,16 @@ export function EnvironmentsTable() {
         <button
           onClick={async (e) => {
             e.stopPropagation();
-            if (confirm(`Delete environment "${row.original.name}"? All secrets in this environment will be lost.`)) {
+            if (confirm(`确定删除环境“${row.original.name}”吗？其中的所有密钥都会丢失。`)) {
               try {
                 await deleteEnvAction({ id: row.original.id });
               } catch (e: any) {
-                alert(e?.message || "Failed to delete environment");
+                alert(e?.message || "删除环境失败");
               }
             }
           }}
           className="text-muted-foreground hover:text-destructive cursor-pointer"
-          title="Delete environment"
+          title="删除环境"
         >
           <TrashIcon className="size-3.5" />
         </button>
@@ -274,7 +274,7 @@ export function EnvironmentsTable() {
           {table.getRowModel().rows.length === 0 ? (
             <TableRow>
               <TableCell colSpan={columns.length} className="text-center text-muted-foreground py-8">
-                No environments yet. Add one below.
+                暂无环境，请在下方添加。
               </TableCell>
             </TableRow>
           ) : (
@@ -298,7 +298,7 @@ export function EnvironmentsTable() {
               <div className="flex items-center gap-2 px-2 py-1">
                 <ErrorBoundary.ErrorMessage className="text-xs text-destructive" />
                 <ErrorBoundary.ResetButton className="text-xs text-destructive underline cursor-pointer">
-                  Try again
+                  重试
                 </ErrorBoundary.ResetButton>
               </div>
             }
@@ -314,7 +314,7 @@ export function EnvironmentsTable() {
               <Input
                 name={envFields.name}
                 inputSize="sm"
-                placeholder="Environment name"
+                placeholder="环境名称"
                 required
                 className="flex-1"
               />
@@ -326,10 +326,10 @@ export function EnvironmentsTable() {
                 className="flex-1 mono-sm"
               />
               <Button size="xs" type="submit">
-                Add
+                添加
               </Button>
               <Button size="xs" variant="ghost" onClick={() => setShowNewRow(false)}>
-                Cancel
+                取消
               </Button>
             </form>
           </ErrorBoundary>
@@ -338,7 +338,7 @@ export function EnvironmentsTable() {
             onClick={() => setShowNewRow(true)}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer px-2 py-1"
           >
-            + Add Environment
+            + 添加环境
           </button>
         )}
       </div>

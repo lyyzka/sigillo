@@ -116,7 +116,7 @@ export const app = new Spiceflow({ tracer })
       projectId,
       pathname,
       currentProjectFirstEnvSlug: null,
-      user: { name: session.user.name || 'User', email: session.user.email || '' },
+      user: { name: session.user.name || '用户', email: session.user.email || '' },
     }
   })
 
@@ -183,7 +183,7 @@ export const app = new Spiceflow({ tracer })
     return {
       orgId,
       projectId,
-      projectName: currentProject?.name ?? 'Project',
+      projectName: currentProject?.name ?? '项目',
       pathname: url.pathname,
       projects,
       environments,
@@ -294,8 +294,8 @@ export const app = new Spiceflow({ tracer })
 
     return (
       <div className="max-w-3xl">
-        <h1 className="text-2xl font-bold tracking-tight mb-2">No projects yet</h1>
-        <p className="text-muted-foreground mb-6">Create your first project to start managing secrets.</p>
+        <h1 className="text-2xl font-bold tracking-tight mb-2">暂无项目</h1>
+        <p className="text-muted-foreground mb-6">创建第一个项目，开始管理密钥。</p>
         <NewProjectButton orgId={params.orgId} />
       </div>
     )
@@ -305,9 +305,9 @@ export const app = new Spiceflow({ tracer })
   .page('/dash/new-org', async () => {
     return (
       <div className="max-w-md mx-auto py-12">
-        <h1 className="text-2xl font-bold tracking-tight mb-2">New Organization</h1>
+        <h1 className="text-2xl font-bold tracking-tight mb-2">新建组织</h1>
         <p className="text-muted-foreground mb-6">
-          Organizations group your projects and team members.
+          组织用于归集项目与团队成员。
         </p>
         <CreateOrgForm />
       </div>
@@ -565,7 +565,7 @@ export const app = new Spiceflow({ tracer })
 
     return {
       orgId,
-      orgName: orgRow?.name ?? 'Organization',
+      orgName: orgRow?.name ?? '组织',
       autoJoinDomain: orgRow?.autoJoinDomain ?? null,
       projectNames: projects.map((p) => p.name),
     }
@@ -635,7 +635,7 @@ export const app = new Spiceflow({ tracer })
       <ContentFrame className="flex grow justify-center items-center">
         <div className="text-center max-w-sm">
           <SigilloLogo className="h-[40px] w-auto mx-auto mb-2" />
-          <p className="text-muted-foreground mb-6">Sign in to manage your secrets</p>
+          <p className="text-muted-foreground mb-6">登录以管理你的密钥</p>
           <LoginButton callbackURL={redirectTo} />
         </div>
       </ContentFrame>
@@ -653,8 +653,8 @@ export const app = new Spiceflow({ tracer })
       return (
         <ContentFrame className="flex grow justify-center items-center">
           <div className="text-center max-w-sm">
-            <h1 className="text-2xl font-bold tracking-tight mb-2">Invalid Invitation</h1>
-            <p className="text-muted-foreground">This invitation link is invalid or has expired.</p>
+            <h1 className="text-2xl font-bold tracking-tight mb-2">邀请无效</h1>
+            <p className="text-muted-foreground">此邀请链接无效或已过期。</p>
           </div>
         </ContentFrame>
       )
@@ -673,12 +673,12 @@ export const app = new Spiceflow({ tracer })
     return (
       <ContentFrame className="flex grow justify-center items-center">
         <div className="text-center max-w-sm space-y-4">
-          <h1 className="text-2xl font-bold tracking-tight">Join {invite.org!.name}</h1>
+          <h1 className="text-2xl font-bold tracking-tight">加入 {invite.org!.name}</h1>
           <p className="text-muted-foreground text-sm">
-            <span className="font-medium text-foreground">{invite.creator!.name}</span> invited you to join this organization.
+            <span className="font-medium text-foreground">{invite.creator!.name}</span> 邀请你加入此组织。
           </p>
           <p className="text-muted-foreground text-xs">
-            This will give you access to <strong>all projects</strong> in this organization.
+            这会授予你访问此组织<strong>所有项目</strong>的权限。
           </p>
           <AcceptInviteButton invitationId={params.id} />
         </div>
@@ -706,11 +706,11 @@ function getInitialThemeClass(request: Request) {
 
 function AppShell({ children, mobileMenuSlot, request }: { children: React.ReactNode; mobileMenuSlot?: React.ReactNode; request: Request }) {
   return (
-    <html lang="en" className={cn("h-dvh", getInitialThemeClass(request))} data-default-theme="system" suppressHydrationWarning>
+    <html lang="zh-CN" className={cn("h-dvh", getInitialThemeClass(request))} data-default-theme="system" suppressHydrationWarning>
       <Head>
         <Head.Meta charSet="UTF-8" />
         <Head.Meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <Head.Title>Sigillo — Secret Manager</Head.Title>
+        <Head.Title>Sigillo — 密钥管理器</Head.Title>
         <Head.Link rel="icon" type="image/png" href="/favicon.png" />
       </Head>
       <body className="relative flex h-dvh flex-col bg-background font-sans antialiased">
@@ -724,7 +724,7 @@ function AppShell({ children, mobileMenuSlot, request }: { children: React.React
             <div className="relative flex min-h-0 grow items-center justify-center max-w-(--content-max-width) mx-auto w-full border-x border-border text-muted-foreground py-12">
               <GridDot position="tl" />
               <GridDot position="tr" />
-              Page not found
+              未找到页面
             </div>
           )}
         </div>
@@ -762,16 +762,16 @@ function TabBar({
     ? router.href('/dash/projects/:projectId/envs/:envSlug/event-log', { projectId, envSlug })
     : router.href('/dash/projects/:projectId/event-log', { projectId })
   const tabs = [
-    { label: 'Secrets', href: secretsHref, active: pathname === base || (pathname.startsWith(`${base}/envs`) && !pathname.endsWith('/event-log')) },
-    { label: 'Environments', href: router.href('/dash/projects/:projectId/environments', { projectId }), active: pathname === `${base}/environments` },
-    { label: 'Tokens', href: router.href('/dash/projects/:projectId/tokens', { projectId }), active: pathname === `${base}/tokens` },
-    { label: 'Access', href: router.href('/dash/projects/:projectId/access', { projectId }), active: pathname === `${base}/access` },
+    { label: '密钥', href: secretsHref, active: pathname === base || (pathname.startsWith(`${base}/envs`) && !pathname.endsWith('/event-log')) },
+    { label: '环境', href: router.href('/dash/projects/:projectId/environments', { projectId }), active: pathname === `${base}/environments` },
+    { label: '令牌', href: router.href('/dash/projects/:projectId/tokens', { projectId }), active: pathname === `${base}/tokens` },
+    { label: '访问权限', href: router.href('/dash/projects/:projectId/access', { projectId }), active: pathname === `${base}/access` },
     {
-      label: 'Event Log',
+      label: '事件日志',
       href: eventLogHref,
       active: pathname === `${base}/event-log` || pathname.endsWith('/event-log'),
     },
-    { label: 'Settings', href: router.href('/dash/projects/:projectId/settings', { projectId }), active: pathname === `${base}/settings` },
+    { label: '设置', href: router.href('/dash/projects/:projectId/settings', { projectId }), active: pathname === `${base}/settings` },
   ] as const
 
   return (

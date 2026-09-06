@@ -23,7 +23,7 @@ export function InviteButton({ orgId }: { orgId: string }) {
     <>
       <Button variant="outline" onClick={() => setOpen(true)}>
         <UserPlusIcon className="size-4" />
-        Invite member
+        邀请成员
       </Button>
       <InviteDialog open={open} onOpenChange={setOpen} orgId={orgId} />
     </>
@@ -55,7 +55,7 @@ function InviteDialog({ open, onOpenChange, orgId }: {
       const result = await createInviteAction({ orgId, projectIds })
       setInviteUrl(`${window.location.origin}${router.href('/invite/:id', { id: result.id })}`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to generate invite link')
+      setError(e instanceof Error ? e.message : '生成邀请链接失败')
     } finally {
       setLoading(false)
     }
@@ -81,10 +81,10 @@ function InviteDialog({ open, onOpenChange, orgId }: {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>Invite member</DialogTitle>
+          <DialogTitle>邀请成员</DialogTitle>
           <DialogDescription>
-            Generate a link to invite someone to this organization.
-            Anyone with the link can join <strong>all projects</strong> in this organization — not just the current project. The link expires in 7 days.
+            生成链接以邀请他人加入此组织。
+            获得链接的任何人都能加入此组织的<strong>所有项目</strong>，不限于当前项目。链接有效期为 7 天。
           </DialogDescription>
         </DialogHeader>
         <div className="px-6 pb-2">
@@ -105,7 +105,7 @@ function InviteDialog({ open, onOpenChange, orgId }: {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Share this link with the person you want to invite. They'll need to sign in first.
+                将此链接发送给受邀人；对方需要先登录。
               </p>
             </div>
           ) : (
@@ -119,7 +119,7 @@ function InviteDialog({ open, onOpenChange, orgId }: {
                       onChange={(e) => setScopeProjects(e.target.checked)}
                       className="accent-primary"
                     />
-                    <span className="font-medium">Limit to specific projects</span>
+                    <span className="font-medium">仅限指定项目</span>
                   </label>
                   {scopeProjects && (
                     <div className="flex flex-col gap-1.5 ml-5 max-h-40 overflow-y-auto">
@@ -140,13 +140,13 @@ function InviteDialog({ open, onOpenChange, orgId }: {
               )}
               <Button onClick={handleGenerate} loading={loading} className="w-full">
                 <LinkIcon className="size-4" />
-                Generate invite link
+                生成邀请链接
               </Button>
             </div>
           )}
           <DialogFooter variant="bare" className="mt-4">
             <DialogClose render={<Button variant="outline" />}>
-              {inviteUrl ? "Done" : "Cancel"}
+              {inviteUrl ? "完成" : "取消"}
             </DialogClose>
           </DialogFooter>
         </div>

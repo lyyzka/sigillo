@@ -32,13 +32,13 @@ import {
 async function requireSession() {
   const request = getActionRequest()
   const session = await getSession(request)
-  if (!session) throw new Error('Unauthorized')
+  if (!session) throw new Error('未授权')
   return session
 }
 
 async function requireAdminRole(userId: string, orgId: string) {
   const { role } = await requireOrgMember(userId, orgId)
-  if (role !== 'admin') throw new Error('Only admins can manage access')
+  if (role !== 'admin') throw new Error('只有管理员可以管理访问权限')
 }
 
 async function ensureAnotherAdminExists(orgId: string, userId: string) {
@@ -48,13 +48,13 @@ async function ensureAnotherAdminExists(orgId: string, userId: string) {
     columns: { userId: true },
   })
   if (admins.length === 1 && admins[0]?.userId === userId) {
-    throw new Error('This organization needs at least one admin')
+    throw new Error('组织至少需要保留一位管理员')
   }
 }
 
 export async function createProjectAction({ name, orgId }: { name: string; orgId: string }) {
-  if (!name) throw new Error('Name is required')
-  if (!orgId) throw new Error('No org selected')
+  if (!name) throw new Error('名称不能为空')
+  if (!orgId) throw new Error('未选择组织')
   const session = await requireSession()
   await requireOrgMember(session.userId, orgId)
   const db = getDb()
@@ -76,19 +76,19 @@ export async function deleteSecretAction({ name, environmentIds }: {
   environmentIds: string[]
 }) {
   const unique = Array.from(new Set(environmentIds))
-  if (!unique.length) throw new Error('No environments selected')
+  if (!unique.length) throw new Error('未选择环境')
   const session = await requireSession()
   const orgIds = await Promise.all(unique.map((id) => getOrgIdForEnvironment(id)))
   const orgId = orgIds[0]
-  if (!orgId || orgIds.some((id) => !id)) throw new Error('Environment not found')
-  if (orgIds.some((id) => id !== orgId)) throw new Error('All environments must belong to the same organization')
+  if (!orgId || orgIds.some((id) => !id)) throw new Error('未找到环境')
+  if (orgIds.some((id) => id !== orgId)) throw new Error('所有环境必须属于同一组织')
   // getMemberProjectAccess also verifies org membership in a single query,
   // so no separate requireOrgMember round-trip is needed.
   const db0 = getDb()
   const env0 = await db0.query.environment.findFirst({ where: { id: unique[0]! }, columns: { projectId: true } })
-  if (!env0) throw new Error('Environment not found')
+  if (!env0) throw new Error('未找到环境')
   if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: env0.projectId })) {
-    throw new Error('You do not have access to this project')
+    throw new Error('你没有此项目的访问权限')
   }
   const db = getDb()
   const queries: BatchItem<'sqlite'>[] = unique.map((envId) =>
@@ -111,14 +111,14 @@ export async function saveSecretsAction({ edits, environmentIds }: {
   const session = await requireSession()
   const currentEnvId = environmentIds[0]!
   const orgId = await getOrgIdForEnvironment(currentEnvId)
-  if (!orgId) throw new Error('Environment not found')
+  if (!orgId) throw new Error('未找到环境')
   // getMemberProjectAccess also verifies org membership in a single query,
   // so no separate requireOrgMember round-trip is needed.
   const db0 = getDb()
   const env0 = await db0.query.environment.findFirst({ where: { id: currentEnvId }, columns: { projectId: true } })
-  if (!env0) throw new Error('Environment not found')
+  if (!env0) throw new Error('未找到环境')
   if (!await getMemberProjectAccess({ userId: session.userId, orgId, projectId: env0.projectId })) {
-    throw new Error('You do not have access to this project')
+    throw new Error('你没有此项目的访问权限')
   }
 
   const db = getDb()
@@ -173,7 +173,7 @@ export async function saveSecretsAction({ edits, environmentIds }: {
 export async function deleteEnvAction({ id }: { id: string }) {
   const session = await requireSession()
   const orgId = await getOrgIdForEnvironment(id)
-  if (!orgId) throw new Error('Environment not found')
+  if (!orgId) throw new Error('未找到环境')
   await requireOrgMember(session.userId, orgId)
   const db = getDb()
   await db.delete(schema.environment).where(orm.eq(schema.environment.id, id))
@@ -184,10 +184,10 @@ export async function createEnvAction({ name, slug, projectId }: {
   slug: string
   projectId: string
 }) {
-  if (!name || !slug) throw new Error('Name and slug are required')
+  if (!name || !slug) throw new Error('名称和标识不能为空')
   const session = await requireSession()
   const orgId = await getOrgIdForProject(projectId)
-  if (!orgId) throw new Error('Project not found')
+  if (!orgId) throw new Error('未找到项目')
   await requireOrgMember(session.userId, orgId)
   const db = getDb()
   await db.insert(schema.environment).values({ projectId, name, slug })
@@ -199,10 +199,10 @@ export async function renameEnvAction({ id, name, slug }: {
   name?: string
   slug?: string
 }) {
-  if (!name && !slug) throw new Error('At least one of name or slug is required')
+  if (!name && !slug) throw new Error('名称或标识至少需填写一个')
   const session = await requireSession()
   const orgId = await getOrgIdForEnvironment(id)
-  if (!orgId) throw new Error('Environment not found')
+  if (!orgId) throw new Error('未找到环境')
   await requireOrgMember(session.userId, orgId)
   const db = getDb()
   const updates: Partial<{ name: string; slug: string; updatedAt: number }> = { updatedAt: Date.now() }
@@ -215,10 +215,10 @@ export async function renameEnvAction({ id, name, slug }: {
 const INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 
 export async function createInviteAction({ orgId, projectIds }: { orgId: string; projectIds?: string[] }) {
-  if (!orgId) throw new Error('No org selected')
+  if (!orgId) throw new Error('未选择组织')
   const session = await requireSession()
   const { role } = await requireOrgMember(session.userId, orgId)
-  if (role !== 'admin') throw new Error('Only admins can create invites')
+  if (role !== 'admin') throw new Error('只有管理员可以创建邀请')
 
   // Validate project IDs belong to this org if provided
   if (projectIds && projectIds.length > 0) {
@@ -229,7 +229,7 @@ export async function createInviteAction({ orgId, projectIds }: { orgId: string;
     })
     const validIds = new Set(orgProjects.map((p) => p.id))
     for (const pid of projectIds) {
-      if (!validIds.has(pid)) throw new Error(`Project ${pid} does not belong to this organization`)
+      if (!validIds.has(pid)) throw new Error(`项目 ${pid} 不属于此组织`)
     }
   }
 
@@ -244,7 +244,7 @@ export async function createInviteAction({ orgId, projectIds }: { orgId: string;
 }
 
 export async function acceptInviteAction({ invitationId }: { invitationId: string }) {
-  if (!invitationId) throw new Error('Invitation ID is required')
+  if (!invitationId) throw new Error('邀请 ID 不能为空')
   const session = await requireSession()
   const db = getDb()
   // Look up the invite without deleting — it stays valid until it expires.
@@ -253,7 +253,7 @@ export async function acceptInviteAction({ invitationId }: { invitationId: strin
   const invite = await db.query.orgInvitation.findFirst({
     where: { id: invitationId },
   })
-  if (!invite || invite.expiresAt < Date.now()) throw new Error('Invitation not found or expired')
+  if (!invite || invite.expiresAt < Date.now()) throw new Error('邀请不存在或已过期')
   // Insert membership, onConflictDoNothing handles the already-member case
   // (unique index on org_id + user_id prevents duplicates).
   const inserted = await db.insert(schema.orgMember)
@@ -299,7 +299,7 @@ export async function updateOrgMemberRoleAction({ memberId, role }: {
     where: { id: memberId },
     columns: { id: true, orgId: true, userId: true, role: true },
   })
-  if (!member) throw new Error('Member not found')
+  if (!member) throw new Error('未找到成员')
 
   await requireAdminRole(session.userId, member.orgId)
 
@@ -326,7 +326,7 @@ export async function removeOrgMemberAction({ memberId }: { memberId: string }) 
     where: { id: memberId },
     columns: { id: true, orgId: true, userId: true, role: true },
   })
-  if (!member) throw new Error('Member not found')
+  if (!member) throw new Error('未找到成员')
 
   await requireAdminRole(session.userId, member.orgId)
 
@@ -345,11 +345,11 @@ export async function createTokenAction({ name, projectId, environmentId }: {
   projectId: string
   environmentId?: string | null
 }) {
-  if (!name) throw new Error('Name is required')
-  if (!projectId) throw new Error('Project is required')
+  if (!name) throw new Error('名称不能为空')
+  if (!projectId) throw new Error('项目不能为空')
   const session = await requireSession()
   const orgId = await getOrgIdForProject(projectId)
-  if (!orgId) throw new Error('Project not found')
+  if (!orgId) throw new Error('未找到项目')
   await requireOrgMember(session.userId, orgId)
 
   // If environmentId is provided, verify it belongs to this project
@@ -359,7 +359,7 @@ export async function createTokenAction({ name, projectId, environmentId }: {
       where: { id: environmentId, projectId },
       columns: { id: true },
     })
-    if (!env) throw new Error('Environment not found in this project')
+    if (!env) throw new Error('此项目中未找到环境')
   }
 
   const { key, hashedKey, prefix } = await generateApiToken()
@@ -378,16 +378,16 @@ export async function createTokenAction({ name, projectId, environmentId }: {
 }
 
 export async function deleteTokenAction({ tokenId }: { tokenId: string }) {
-  if (!tokenId) throw new Error('Token ID is required')
+  if (!tokenId) throw new Error('令牌 ID 不能为空')
   const session = await requireSession()
   const db = getDb()
   const token = await db.query.apiToken.findFirst({
     where: { id: tokenId },
     columns: { projectId: true },
   })
-  if (!token) throw new Error('Token not found')
+  if (!token) throw new Error('未找到令牌')
   const orgId = await getOrgIdForProject(token.projectId)
-  if (!orgId) throw new Error('Project not found')
+  if (!orgId) throw new Error('未找到项目')
   await requireOrgMember(session.userId, orgId)
   await db.delete(schema.apiToken).where(orm.eq(schema.apiToken.id, tokenId))
 }
@@ -401,15 +401,15 @@ export async function syncMissingSecretsAction({
   targetEnvironmentId: string
   names: string[]
 }) {
-  if (!sourceEnvironmentId || !targetEnvironmentId) throw new Error('Both environment IDs are required')
-  if (sourceEnvironmentId === targetEnvironmentId) throw new Error('Source and target environments must be different')
-  if (!names.length) throw new Error('No secret names provided')
+  if (!sourceEnvironmentId || !targetEnvironmentId) throw new Error('必须提供两个环境 ID')
+  if (sourceEnvironmentId === targetEnvironmentId) throw new Error('源环境和目标环境必须不同')
+  if (!names.length) throw new Error('未提供密钥名称')
   const session = await requireSession()
 
   const sourceOrgId = await getOrgIdForEnvironment(sourceEnvironmentId)
   const targetOrgId = await getOrgIdForEnvironment(targetEnvironmentId)
-  if (!sourceOrgId || !targetOrgId) throw new Error('Environment not found')
-  if (sourceOrgId !== targetOrgId) throw new Error('Environments must belong to the same organization')
+  if (!sourceOrgId || !targetOrgId) throw new Error('未找到环境')
+  if (sourceOrgId !== targetOrgId) throw new Error('环境必须属于同一组织')
   await requireOrgMember(session.userId, targetOrgId)
 
   // Re-derive both sides server-side so we never overwrite a key that was
@@ -443,15 +443,15 @@ export async function syncMissingSecretsAction({
 }
 
 export async function createOrgAction({ name, enableAutoJoin }: { name: string; enableAutoJoin?: boolean }) {
-  if (!name) throw new Error('Name is required')
+  if (!name) throw new Error('名称不能为空')
   const session = await requireSession()
 
   let autoJoinDomain: string | null = null
   if (enableAutoJoin) {
-    if (!session.user.emailVerified) throw new Error('Email must be verified to enable auto-join')
+    if (!session.user.emailVerified) throw new Error('必须验证邮箱才能启用自动加入')
     const domain = getEmailDomain(session.user.email)
     if (!domain || COMMON_EMAIL_DOMAINS.has(domain)) {
-      throw new Error('Cannot enable auto-join for public email domains')
+      throw new Error('公共邮箱域名不能启用自动加入')
     }
     autoJoinDomain = domain
   }
@@ -466,16 +466,16 @@ export async function createOrgAction({ name, enableAutoJoin }: { name: string; 
 }
 
 export async function updateAutoJoinDomainAction({ orgId, enabled }: { orgId: string; enabled: boolean }) {
-  if (!orgId) throw new Error('Org ID is required')
+  if (!orgId) throw new Error('组织 ID 不能为空')
   const session = await requireSession()
   await requireAdminRole(session.userId, orgId)
 
   let autoJoinDomain: string | null = null
   if (enabled) {
-    if (!session.user.emailVerified) throw new Error('Email must be verified to enable auto-join')
+    if (!session.user.emailVerified) throw new Error('必须验证邮箱才能启用自动加入')
     const domain = getEmailDomain(session.user.email)
     if (!domain || COMMON_EMAIL_DOMAINS.has(domain)) {
-      throw new Error('Cannot enable auto-join for public email domains')
+      throw new Error('公共邮箱域名不能启用自动加入')
     }
     autoJoinDomain = domain
   }
@@ -503,11 +503,11 @@ export async function updateMemberAccessAction({ memberId, projectIds }: {
     where: { id: memberId },
     columns: { id: true, orgId: true, role: true },
   })
-  if (!member) throw new Error('Member not found')
+  if (!member) throw new Error('未找到成员')
   await requireAdminRole(session.userId, member.orgId)
 
   // Cannot restrict admins
-  if (member.role === 'admin') throw new Error('Admins always have full access')
+  if (member.role === 'admin') throw new Error('管理员始终拥有完整访问权限')
 
   // Delete all existing access rules for this member
   await db.delete(schema.memberAccess)
@@ -524,7 +524,7 @@ export async function updateMemberAccessAction({ memberId, projectIds }: {
   const orgProjectIdsSet = new Set(orgProjects.map((p) => p.id))
   for (const pid of projectIds) {
     if (!orgProjectIdsSet.has(pid)) {
-      throw new Error(`Project ${pid} does not belong to this organization`)
+      throw new Error(`项目 ${pid} 不属于此组织`)
     }
   }
 
@@ -548,7 +548,7 @@ export async function updateEnvironmentAccessRoleAction({ environmentId, accessR
 }) {
   const session = await requireSession()
   const orgId = await getOrgIdForEnvironment(environmentId)
-  if (!orgId) throw new Error('Environment not found')
+  if (!orgId) throw new Error('未找到环境')
   await requireAdminRole(session.userId, orgId)
   const db = getDb()
   await db.update(schema.environment)
@@ -559,7 +559,7 @@ export async function updateEnvironmentAccessRoleAction({ environmentId, accessR
 }
 
 export async function deleteOrgAction({ orgId }: { orgId: string }) {
-  if (!orgId) throw new Error('Org ID is required')
+  if (!orgId) throw new Error('组织 ID 不能为空')
   const session = await requireSession()
   await requireAdminRole(session.userId, orgId)
   const db = getDb()

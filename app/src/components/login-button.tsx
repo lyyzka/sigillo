@@ -24,7 +24,7 @@ export function LoginButton({ callbackURL = "/dash" }: { callbackURL?: string })
       loading={loading}
       size="lg"
     >
-      {loading ? "Redirecting…" : "Sign in with Google"}
+      {loading ? "正在跳转…" : "使用 Google 登录"}
     </Button>
   )
 }

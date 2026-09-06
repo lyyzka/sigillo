@@ -1,8 +1,8 @@
 ---
 $schema: https://holocron.so/frontmatter.json
-title: 'Self-host Sigillo on your own Cloudflare account'
+title: '在自己的 Cloudflare 账户上自托管 Sigillo'
 sidebarTitle: 'Self-hosting'
-description: 'Deploy Sigillo to your own Cloudflare account with a single command: Worker, D1 database, migrations, and custom domain, with no build step required.'
+description: '一条命令将 Sigillo 部署到自己的 Cloudflare 账户：包含 Worker、D1 数据库、迁移和自定义域名，无需构建。'
 icon: lucide:server
 ---
 
@@ -14,7 +14,7 @@ npx sigillo self-host
 
 The command provisions a **Worker and a D1 database** on your account, applies the database migrations, uploads the latest Sigillo release, and prints your instance URL. The whole thing runs on Cloudflare's **free plan**.
 
-## What it does
+## 它会做什么
 
 ```diagram
 npx sigillo self-host
@@ -29,7 +29,7 @@ npx sigillo self-host
 
 Authentication with your instance **just works**: the deployed app registers itself with the hosted Sigillo auth provider on first load, so you sign in with the same login as sigillo.dev. There are no OAuth keys to configure.
 
-## Cloudflare credentials
+## Cloudflare 凭据
 
 The command finds **credentials** in this order:
 
@@ -44,7 +44,7 @@ Deploying over **SSH**? Pick the API token option: the pre-filled link opens on 
 </Tip>
 </Aside>
 
-## Updating
+## 更新
 
 Re-run the same command anytime to **update** to the latest release:
 
@@ -54,7 +54,7 @@ npx sigillo self-host
 
 Re-runs are **idempotent**: only new database migrations are applied, unchanged assets are skipped, and your auth secret is never rotated, so your stored secrets stay decryptable.
 
-## Options
+## 选项
 
 See the full flag reference at [sigillo self-host](./cli/self-host.mdx).
 
@@ -73,7 +73,7 @@ Non-interactive example for **CI or agents**:
 CLOUDFLARE_API_TOKEN=xxx npx sigillo self-host --yes
 ```
 
-## Using your instance
+## 使用你的实例
 
 Point the CLI at your deployment with **`--api-url`**:
 

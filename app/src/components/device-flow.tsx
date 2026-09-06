@@ -27,7 +27,7 @@ export function DeviceFlow({ initialCode = '' }: { initialCode?: string }) {
         query: { user_code: formatted },
       })
       if (err || !data) {
-        setError('Invalid or expired code. Please try again.')
+        setError('验证码无效或已过期，请重试。')
         setLoading(false)
         return
       }
@@ -35,7 +35,7 @@ export function DeviceFlow({ initialCode = '' }: { initialCode?: string }) {
       await authClient.device.approve({ userCode: formatted })
       setDone(true)
     } catch {
-      setError('Invalid or expired code. Please try again.')
+      setError('验证码无效或已过期，请重试。')
     }
     setLoading(false)
   }
@@ -44,9 +44,9 @@ export function DeviceFlow({ initialCode = '' }: { initialCode?: string }) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
         <div className="text-center max-w-sm">
-          <h1 className="text-2xl font-bold mb-2">Device Approved</h1>
+          <h1 className="text-2xl font-bold mb-2">设备已授权</h1>
           <p className="text-muted-foreground">
-            You can close this page. Your CLI or agent is now authenticated.
+            你可以关闭此页面。你的 CLI 或智能体现已完成认证。
           </p>
         </div>
       </div>
@@ -56,8 +56,8 @@ export function DeviceFlow({ initialCode = '' }: { initialCode?: string }) {
   return (
     <div className="flex justify-center items-center min-h-[60vh]">
       <div className="text-center max-w-sm">
-        <h1 className="text-2xl font-bold mb-2">Device Login</h1>
-        <p className="text-muted-foreground mb-6">Enter the code shown on your CLI or agent:</p>
+        <h1 className="text-2xl font-bold mb-2">设备登录</h1>
+        <p className="text-muted-foreground mb-6">输入 CLI 或智能体显示的验证码：</p>
         {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
         <form onSubmit={handleVerify} className="flex flex-col gap-4">
           <Input
@@ -73,7 +73,7 @@ export function DeviceFlow({ initialCode = '' }: { initialCode?: string }) {
             size="lg"
             loading={loading}
           >
-            {loading ? 'Approving…' : 'Verify Code'}
+            {loading ? '正在授权…' : '验证验证码'}
           </Button>
         </form>
       </div>
