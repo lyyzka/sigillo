@@ -24,7 +24,7 @@ export function LoginButton({ callbackURL = "/dash" }: { callbackURL?: string })
       loading={loading}
       size="lg"
     >
-      {loading ? "正在跳转…" : "使用 Google 登录"}
+      {loading ? "正在跳转…" : "使用 LingxiLoop 账号登录"}
     </Button>
   )
 }
