@@ -237,15 +237,6 @@ export async function getAuth(request: Request) {
             discoveryUrl: `${env.PROVIDER_URL}/api/auth/.well-known/openid-configuration`,
             scopes: ['openid', 'email', 'profile'],
             pkce: true,
-            // Always let the user pick which Google account to use. Without
-            // this the provider silently reuses its own session (and the
-            // consent step is auto-accepted for first-party clients), so
-            // pressing "Sign in with Google" never showed a choice — you got
-            // whichever account the provider last saw. The provider maps
-            // prompt=select_account onto its /select-account route, which
-            // restarts the Google sign-in and then resumes the authorize flow
-            // via /oauth2/continue.
-            prompt: 'select_account',
           },
         ],
       }),

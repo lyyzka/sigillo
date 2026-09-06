@@ -10,8 +10,11 @@ import { env } from 'cloudflare:workers'
 import { Spiceflow } from 'spiceflow'
 import { Head } from 'spiceflow/react'
 import { getAuth, getDb } from './db.ts'
+import * as schema from './schema.ts'
 import { ConsentButtons } from './components/consent-buttons.tsx'
 import { SigilloLogo } from 'sigillo-app/src/components/logo.tsx'
+import { makeSignature } from 'better-auth/crypto'
+import { eq } from 'drizzle-orm'
 
 
 // Renders OAuth/OIDC errors that BetterAuth redirects to the root in production.
@@ -57,13 +60,7 @@ function ErrorScreen({ error, errorDescription }: { error: string; errorDescript
   )
 }
 
-function ConsentScreen({
-  redirectDomain,
-  switchAccountUrl,
-}: {
-  redirectDomain: string | null
-  switchAccountUrl: string
-}) {
+function ConsentScreen({ redirectDomain }: { redirectDomain: string | null }) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10 sm:px-6">
       <section className="w-full max-w-sm">
@@ -92,15 +89,6 @@ function ConsentScreen({
           <ConsentButtons />
         </div>
 
-        <p className="mt-6 text-sm leading-6 text-muted-foreground">
-          账户不对？{' '}
-          <a
-            href={switchAccountUrl}
-            className="font-medium text-foreground underline underline-offset-4 hover:no-underline"
-          >
-            使用其他 Google 账户登录
-          </a>
-        </p>
       </section>
     </main>
   )
@@ -205,6 +193,42 @@ async function startGoogleSignIn(request: Request, callbackUrl: URL) {
   return redirect
 }
 
+async function signInFromLingxiLoop(request: Request, code: string) {
+  const exchange = await fetch(`${env.LINGXILOOP_SSO_URL}/api/auth/sso/sigillo/exchange`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-sigillo-sso-secret': env.LINGXILOOP_SSO_SECRET },
+    body: JSON.stringify({ code }),
+  })
+  if (!exchange.ok) return new Response('LingxiLoop 登录验证失败', { status: 401 })
+  const identity = await exchange.json<{ userId: string; email: string; name: string; returnTo: string }>()
+  const bridge = new URL(identity.returnTo)
+  if (bridge.origin !== new URL(request.url).origin || bridge.pathname !== '/sign-in/sso') {
+    return new Response('无效的登录返回地址', { status: 400 })
+  }
+
+  const db = getDb()
+  const existing = await db.query.user.findFirst({ where: { email: identity.email } })
+  const userId = existing?.id ?? identity.userId
+  if (existing) {
+    await db.update(schema.user).set({ name: identity.name, emailVerified: true, updatedAt: Date.now() }).where(eq(schema.user.id, userId))
+  } else {
+    await db.insert(schema.user).values({ id: userId, name: identity.name, email: identity.email, emailVerified: true })
+  }
+
+  const token = crypto.randomUUID().replaceAll('-', '')
+  await db.insert(schema.session).values({
+    id: crypto.randomUUID(), userId, token, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+  })
+  const destination = new URL(bridge.searchParams.get('return_to') ?? '/', bridge.origin)
+  if (destination.origin !== bridge.origin || destination.pathname !== '/sign-in') {
+    return new Response('无效的登录返回地址', { status: 400 })
+  }
+  const signedToken = `${token}.${await makeSignature(token, env.BETTER_AUTH_SECRET)}`
+  const response = Response.redirect(destination.toString(), 302)
+  response.headers.append('Set-Cookie', `__Secure-better-auth.session_token=${encodeURIComponent(signedToken)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800`)
+  return response
+}
+
 export const app = new Spiceflow()
 
   // ── BetterAuth middleware ──────────────────────────────────────
@@ -264,18 +288,24 @@ export const app = new Spiceflow()
   // /oauth2/continue does once an account has been selected.
   .get('/sign-in', async ({ request }) => {
     const currentUrl = new URL(request.url)
-    const switchAccount = currentUrl.searchParams.get('switch') === '1'
-    currentUrl.searchParams.delete('switch')
     const auth = getAuth()
     const session = await auth.api.getSession({ headers: request.headers })
-    if (session && !switchAccount) {
+    if (session) {
       const authorizeUrl = new URL('/api/auth/oauth2/authorize', currentUrl.origin)
       authorizeUrl.search = currentUrl.search
-      removePrompt(authorizeUrl.searchParams, 'select_account')
       return Response.redirect(authorizeUrl.toString(), 302)
     }
+    const bridge = new URL('/sign-in/sso', currentUrl.origin)
+    bridge.searchParams.set('return_to', currentUrl.toString())
+    const login = new URL('/api/auth/sso/sigillo', env.LINGXILOOP_SSO_URL)
+    login.searchParams.set('return_to', bridge.toString())
+    return Response.redirect(login.toString(), 302)
+  })
 
-    return startGoogleSignIn(request, currentUrl)
+  .get('/sign-in/sso', ({ request }) => {
+    const code = new URL(request.url).searchParams.get('code')
+    if (!code) return new Response('缺少登录代码', { status: 400 })
+    return signInFromLingxiLoop(request, code)
   })
 
   // ── Federated sign-out ─────────────────────────────────────────
@@ -417,19 +447,12 @@ export const app = new Spiceflow()
 
     // The consent URL carries the original authorize params, so /sign-in can
     // restart the flow with them and resume authorize after Google returns.
-    const switchParams = new URLSearchParams(url.search)
-    switchParams.set('switch', '1')
-    return (
-      <ConsentScreen
-        redirectDomain={redirectDomain}
-        switchAccountUrl={`/sign-in?${switchParams}`}
-      />
-    )
+    return <ConsentScreen redirectDomain={redirectDomain} />
   })
 
   // Preview route to see consent UI without initiating an auth flow
   .page('/consent-preview', async () => {
-    return <ConsentScreen redirectDomain="my-app.example.com" switchAccountUrl="/sign-in?switch=1" />
+    return <ConsentScreen redirectDomain="my-app.example.com" />
   })
 
   // ── Well-known endpoints ─────────────────────────────────────

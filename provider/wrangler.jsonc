@@ -6,52 +6,19 @@
   "placement": {
     "mode": "smart",
   },
-  // DO → D1 migration: delete the old AuthStore DO class
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["AuthStore"] },
-    { "tag": "v2", "deleted_classes": ["AuthStore"] },
-  ],
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "sigillo-provider-db",
-      "database_id": "953c1850-ec14-4e7c-b392-87256389b903",
+      "database_id": "b0e99e5f-7e75-4140-bbe2-073bc6dc2343",
       "migrations_dir": "./drizzle",
     },
   ],
   "vars": {
-    "BETTER_AUTH_URL": "https://auth.sigillo.dev",
+    "BETTER_AUTH_URL": "https://sigillo-provider.yangyangli0426.workers.dev",
+    "LINGXILOOP_SSO_URL": "https://admin.lingxilearn.cn",
   },
   "secrets": {
-    "required": ["BETTER_AUTH_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
-  },
-  "routes": [
-    { "pattern": "auth.sigillo.dev", "custom_domain": true },
-  ],
-  "env": {
-    "preview": {
-      "name": "sigillo-provider-preview",
-      "migrations": [
-        { "tag": "v1", "new_sqlite_classes": ["AuthStore"] },
-        { "tag": "v2", "deleted_classes": ["AuthStore"] },
-      ],
-      "d1_databases": [
-        {
-          "binding": "DB",
-          "database_name": "sigillo-provider-preview-db",
-          "database_id": "bfec8992-6465-49b4-ad75-6cf4e5625c52",
-          "migrations_dir": "./drizzle",
-        },
-      ],
-      "vars": {
-        "BETTER_AUTH_URL": "https://auth.preview.sigillo.dev",
-      },
-      "secrets": {
-        "required": ["BETTER_AUTH_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
-      },
-      "routes": [
-        { "pattern": "auth.preview.sigillo.dev", "custom_domain": true, "zone_name": "sigillo.dev" },
-      ],
-    },
+    "required": ["BETTER_AUTH_SECRET", "LINGXILOOP_SSO_SECRET"],
   },
 }

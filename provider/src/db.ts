@@ -58,13 +58,6 @@ export function getAuth() {
         maxAge: 5 * 60, // 5 minutes — avoids a D1 round-trip on every request
       },
     },
-    socialProviders: {
-      google: {
-        clientId: env.GOOGLE_CLIENT_ID,
-        clientSecret: env.GOOGLE_CLIENT_SECRET,
-        prompt: 'select_account',
-      },
-    },
     plugins: [
       jwt(),
       oauthProvider({
@@ -72,18 +65,6 @@ export function getAuth() {
         // Dynamic client registration stays open for self-hosted instances,
         // but clients are no longer treated as trusted by default.
         consentPage: '/consent',
-        // Without selectAccount.page, oauthProvider rejects any authorize
-        // request carrying prompt=select_account with
-        // unsupported_prompt_select_account. /select-account restarts the
-        // Google sign-in and then resumes via /oauth2/continue.
-        // The page must not carry its own query string: oauthProvider builds
-        // the redirect as `${page}?${signedParams}`.
-        // shouldRedirect stays false so account selection is never forced on
-        // clients that did not ask for it.
-        selectAccount: {
-          page: '/select-account',
-          shouldRedirect: () => false,
-        },
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
         scopes: ['openid', 'email', 'profile', 'offline_access'],
