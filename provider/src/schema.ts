@@ -149,6 +149,7 @@ export const oauthConsent = sqliteCore.sqliteTable('oauth_consent', {
   referenceId: sqliteCore.text('reference_id'),
   scopes: jsonArray('scopes').notNull(),
   resources: jsonArray('resources'),
+  requestedUserInfoClaims: jsonArray('requested_user_info_claims'),
   createdAt: epochMs('created_at').$defaultFn(() => Date.now()),
   updatedAt: epochMs('updated_at').$defaultFn(() => Date.now()),
 }, (table) => [
