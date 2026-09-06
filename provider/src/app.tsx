@@ -224,7 +224,7 @@ async function signInFromLingxiLoop(request: Request, code: string) {
     return new Response('无效的登录返回地址', { status: 400 })
   }
   const signedToken = `${token}.${await makeSignature(token, env.BETTER_AUTH_SECRET)}`
-  const response = Response.redirect(destination.toString(), 302)
+  const response = new Response(null, { status: 302, headers: { Location: destination.toString() } })
   response.headers.append('Set-Cookie', `__Secure-better-auth.session_token=${encodeURIComponent(signedToken)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800`)
   return response
 }
