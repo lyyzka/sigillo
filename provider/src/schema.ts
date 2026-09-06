@@ -180,11 +180,14 @@ export const oauthAccessToken = sqliteCore.sqliteTable('oauth_access_token', {
   sessionId: sqliteCore.text('session_id').references(() => session.id, { onDelete: 'set null' }),
   userId: sqliteCore.text('user_id').references(() => user.id),
   referenceId: sqliteCore.text('reference_id'),
+  authorizationCodeId: sqliteCore.text('authorization_code_id'),
   refreshId: sqliteCore.text('refresh_id').references(() => oauthRefreshToken.id),
   expiresAt: epochMs('expires_at').notNull(),
   createdAt: epochMs('created_at').$defaultFn(() => Date.now()),
   scopes: jsonArray('scopes').notNull(),
   resources: jsonArray('resources'),
+  requestedUserInfoClaims: jsonArray('requested_user_info_claims'),
+  confirmation: sqliteCore.text('confirmation', { mode: 'json' }),
 }, (table) => [
   sqliteCore.index('oauth_access_token_user_id_idx').on(table.userId),
 ])
