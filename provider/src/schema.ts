@@ -196,6 +196,8 @@ export const jwks = sqliteCore.sqliteTable('jwks', {
   privateKey: sqliteCore.text('private_key').notNull(),
   createdAt: epochMs('created_at').notNull().$defaultFn(() => Date.now()),
   expiresAt: epochMs('expires_at'),
+  alg: sqliteCore.text('alg'),
+  crv: sqliteCore.text('crv'),
 })
 
 // ── Relations (v2 API) ──────────────────────────────────────────────
