@@ -1,7 +1,7 @@
 {
   "name": "sigillo",
   "compatibility_date": "2026-04-16",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "main": "src/app.tsx",
   "placement": { "mode": "smart" },
   "d1_databases": [
