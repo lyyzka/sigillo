@@ -732,7 +732,17 @@ export async function getRequestApiToken(request: Request): Promise<{
 
 // ── Encryption (AES-256-GCM) ────────────────────────────────────────
 
+// The encryption key is fixed for the lifetime of a Worker isolate. Reusing
+// the imported CryptoKey avoids deriving it once per decrypted secret.
+let encryptionKeyPromise: Promise<CryptoKey> | undefined
+
 async function getEncryptionKey(): Promise<CryptoKey> {
+  if (encryptionKeyPromise) return encryptionKeyPromise
+  encryptionKeyPromise = createEncryptionKey()
+  return encryptionKeyPromise
+}
+
+async function createEncryptionKey(): Promise<CryptoKey> {
   const configuredKey = process.env.ENCRYPTION_KEY?.trim()
   if (configuredKey) {
     const raw = Uint8Array.from(atob(configuredKey), (c) => c.charCodeAt(0))

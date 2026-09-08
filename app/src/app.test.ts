@@ -449,6 +449,18 @@ describe('secrets — download formats', () => {
     expect(body.Connection).toBeTruthy()
     expect(body.Connection!.Host).toBe('Server=localhost')
   })
+
+  test('downloads a production-sized secret set', async () => {
+    const af = authedFetch(token)
+    const secrets = Object.fromEntries(Array.from({ length: 50 }, (_, index) => [`LOAD_${index}`, `value-${index}`]))
+    assertOk(await af('/api/v0/projects/:pid/environments/:eid/secrets', {
+      method: 'PUT', params: { pid: projectId, eid: envId }, body: { secrets },
+    }))
+
+    const res = await downloadReq('json')
+    expect(res.status).toBe(200)
+    expect((await res.json() as Record<string, string>).LOAD_49).toBe('value-49')
+  })
 })
 
 // ── API tokens ──────────────────────────────────────────────────────
